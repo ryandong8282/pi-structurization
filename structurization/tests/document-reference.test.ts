@@ -2206,11 +2206,12 @@ describe("resolve_document_reference", () => {
         tool_arguments: { target_key: result.details.target_key },
         writable_parameters: ["target_key"],
         do_not_edit: expect.any(String),
-        instruction: expect.stringContaining("第 1 步只传 target_key 调用 read_reference_facts 取得目录"),
+        instruction: expect.stringContaining("read_reference_facts 的 target_key 取得目录"),
       });
-      expect(String(receipt.instruction)).toContain("第 2 步从目录复制本轮需要的 entry_id");
-      expect(String(receipt.instruction)).toContain("用 target_key 和 entry_ids 打开条目");
-      expect(String(receipt.instruction)).toContain("不得用 open_evidence、read_document_reference_evidence 或定位工具绕过隔离读取");
+      expect(String(receipt.instruction)).toContain("按 entry_ids 及分页参数完整读取所选行");
+      expect(String(receipt.instruction)).toContain("resolved_rows 返回已读行的 evidence_id 和整行 span_id");
+      expect(String(receipt.instruction)).toContain("不能用 open_evidence、read_document_reference_evidence 或定位工具读取尚未交付的隔离正文");
+      expect(String(receipt.instruction)).toContain("读完一行后，可按该行 quote_locator 用 locate_evidence_span");
     }
     const isolatedEvidence = (await receiptEvidence(workspace, result.details))[0]!;
     expect(await controller.dispatch("open_evidence", { evidence_id: isolatedEvidence.evidence_id }))
