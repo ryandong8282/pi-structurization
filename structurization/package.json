@@ -23,8 +23,9 @@
     }
   },
   "scripts": {
+    "dev:acceptance": "tsx src/acceptance-dev.ts",
     "build": "node scripts/patch-pi-ai.mjs && tsc -p tsconfig.json && node scripts/copy-skills.mjs",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.dev.json --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run",
     "postinstall": "node scripts/patch-pi-ai.mjs",

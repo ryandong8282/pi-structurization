@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "rootDir": ".", "noEmit": true },
+  "include": ["src/acceptance-dev.ts", "tests/dev-acceptance.test.ts"]
+}

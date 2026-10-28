@@ -6,6 +6,8 @@ coverage/
 .env.*
 !.env.example
 data/
+# Local runtime model configuration, source material and development runs.
+.local/
 .tmp*/
 *.log
 __pycache__/
