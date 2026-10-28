@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { basename, resolve } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
@@ -27,7 +27,7 @@ import { COVERAGE_REVIEW_SYSTEM_PROMPT } from "../src/pi-runtime.js";
 import { SOURCE_HANDLE_INSTRUCTION } from "../src/model-source-handles.js";
 import { PiSessionTelemetry } from "../src/session-telemetry.js";
 
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const projectRoot = resolve(process.env.PDF_EX_CODEX_ROOT ?? process.cwd());
 
 const cases = [
   {
@@ -266,7 +266,9 @@ function wireTelemetry(
 }
 
 describe("multi-spec Coverage Review risk gate benchmark", () => {
-  test("samples representative newly uploaded specification pairs and measures risk_delta reduction", async () => {
+  // Private uploaded PDF/Markdown pairs remain in the consuming application.
+  const sourcesAvailable = cases.every(spec => existsSync(resolve(projectRoot, spec.markdown)) && existsSync(resolve(projectRoot, spec.pdf)));
+  test.skipIf(!sourcesAvailable)("samples representative newly uploaded specification pairs and measures risk_delta reduction", async () => {
     const reports: Array<Record<string, unknown>> = [];
 
     for (const spec of cases) {
