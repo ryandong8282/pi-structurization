@@ -122,12 +122,15 @@ describe("reference catalog row citation handles", () => {
     const { workspace, rebuildWorkspace, manifest, targetKey, state } = fixture("中🙂".repeat(12000), 1);
     let output = await readReferenceCatalog(workspace, manifest, targetKey, { entry_ids: ["seg:1"] });
     expect(output).toMatchObject({ delivery: { complete: false }, next_tool_arguments: { row_cursor: 0, row_offset: expect.any(Number) } });
+    expect(output).not.toHaveProperty("resolved_rows");
+    expect(JSON.stringify(output)).not.toContain("quote_locator");
     const pieces = [(output.entries as any[])[0].rows[0][1]];
     while (output.next_tool_arguments) {
       output = await readReferenceCatalog(rebuildWorkspace(), manifest, targetKey, output.next_tool_arguments as any);
       pieces.push((output.entries as any[])[0].rows[0][1]);
     }
     expect(pieces.join("")).toBe("中🙂".repeat(12000));
+    expect(output).toMatchObject({ resolved_rows: [{ quote_locator: { tool: "locate_evidence_span" } }] });
     expect(referenceCatalogDeliveryWork(state)).toBeUndefined();
   });
   test.each(["target", "coverage"] as const)("%s returns verified row spans without expanding catalog or body responses", async (phase) => {
@@ -145,6 +148,14 @@ describe("reference catalog row citation handles", () => {
       evidence_id: records[0]!.evidence_id,
       span_id: expect.stringMatching(/^span:/u),
     });
+    if (phase === "target") {
+      expect(openedRows[0]).toHaveProperty("quote_locator", {
+        tool: "locate_evidence_span", fixed_arguments: { evidence_id: records[0]!.evidence_id },
+        author_required_parameters: ["quote"], optional_parameters: ["prefix", "suffix"],
+      });
+    } else {
+      expect(JSON.stringify(opened)).not.toContain("quote_locator");
+    }
     const reopened = await readReferenceCatalog(workspace, manifest, targetKey, { entry_ids: ["seg:1"] }, phase);
     expect(reopened.resolved_rows).toEqual(openedRows);
     const request = { resolve_rows: Array.from({ length: 13 }, (_, row_index) => ({ entry_id: "seg:1", row_index })) };

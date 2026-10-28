@@ -3,7 +3,7 @@
  * Existing schemas, controller state, tool registration, budgets and artifacts
  * remain authoritative. No model call, new phase or fallback is introduced.
  */
-export const PROMPT_SUITE_VERSION = 'acceptance-prompt-suite/2026-10-28.2';
+export const PROMPT_SUITE_VERSION = 'acceptance-prompt-suite/2026-10-28.3';
 
 export const MODEL_OUTPUT_LANGUAGE_GUIDANCE = `自然语言说明、理由、调查与交接用简体中文；业务名称沿用原文主语言。工具名、字段、枚举、ID、路径、错误码、公式、单位及精确原文保持原样。`;
 
@@ -59,7 +59,7 @@ target_key 标识被引目标，occurrence_id 标识本地引用发生处。相�
 2. 知道原引用但缺少匹配目标的 target_key，或不确定当前发生处是否已登记：调用当前角色的引用目录：selector 用 list_reference_occurrences，coverage 用 list_coverage_reference_targets；按原引用、来源位置、origin_fields 和 target_locator 匹配同一发生处。目录若已给 read_tool/tool_arguments 就复制调用；否则对 status=resolved 且有实际来源的行，analysis_mode=inline 时用 read_document_reference_evidence，isolated 时用 read_reference_facts，传该行实际 target_key；短句柄所属目标由程序绑定；有编号但未解析成功不代表正文可读。目录未列完按 next_cursor 续页，不能把当前页未命中当成未登记。
 3. 原文出现尚未登记的明确内部引用发生处：按 references 协议调用 resolve_document_reference，得到实际目标和读取路由后再读。即使其他位置已引用相同目标，也须保留本处真实来源；不通过猜测编号试探目标，原文没有具体编号的泛指不猜目标。
 按回条的 access_mode/read_tool 选择正文工具：direct 用回条指定的 open_evidence（coverage 为 open_review_evidence）；inline_reference 用 read_document_reference_evidence 完成组件分页；isolated_reference 用 read_reference_facts，不借 open/search/table/global 工具绕过隔离。若回条只给 read_tool 和对应 evidence_id/target_key，就将该实际值放入同名参数；直接使用当前回条的短句柄，所属目标由程序绑定。
-inline 使用当前公开 target_key 读到 done。isolated 使用 read_reference_facts：诊断已点名 evidence_ids 时，按其精确参数定位目录行，再复制返回的正文调用；没有点名来源时仅传 target_key 取无正文目录。entry_id 用机器值而非 source_label，选择实际需要条目逐行分页读取，其余条目按有据理由 skip/skip_rest。定位元数据、used/开始读取不等于正文完整交付。目录、正文的 cursor/offset 分开，续单条正文时 entry_ids 恰为一项，原样复制 next_*；重新打开 skipped 条目撤销 ignored。完整行自动返回 evidence/span，同次已交付的点名行可复用；resolve_rows 仅取已读行句柄，整行不自动成为独立单位、数值、方法。
+inline 使用当前公开 target_key 读到 done。isolated 使用 read_reference_facts：诊断已点名 evidence_ids 时，按其精确参数定位目录行，再复制返回的正文调用；没有点名来源时仅传 target_key 取无正文目录。entry_id 用机器值而非 source_label，选择实际需要条目逐行分页读取，其余条目按有据理由 skip/skip_rest。定位元数据、used/开始读取不等于正文完整交付。目录、正文的 cursor/offset 分开，续单条正文时 entry_ids 恰为一项，原样复制 next_*；重新打开 skipped 条目撤销 ignored。完整行自动返回 evidence/span 和 quote_locator，同次已交付的点名行可复用；resolve_rows 仅取已读行句柄。整行不自动成为独立名称、单位、数值或方法：按该行 quote_locator 复制 evidence_id，自行选择逐字连续 quote，用 locate_evidence_span 登记精确片段，重复文字可传 prefix/suffix 消歧。禁止的是用定位读取未交付的隔离正文；完整读取后的精确定位合法，无须先 open_evidence、重登引用或借其他来源。
 读完后依据原文决定业务接收，按 reference_routes 保存引用关系和真实字段；阅读回执本身不表示采用或完成。全局 atom 打开仅供调查；采用范围外共同/引用来源须经现有 dependency 登记后精确定位，登记容器不产生整块可绑业务 span。primary 缺口走既有精确 evidence span 的 scope blocker，不能把直接正文伪装依赖。邻接、同号、重叠不证明范围或适用性。`;
 
 export const REFERENCE_ACTION_GUIDANCE_ZH = `引用登记与定位

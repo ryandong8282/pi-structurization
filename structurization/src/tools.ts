@@ -4908,7 +4908,7 @@ export class ToolController {
 
   private isolatedReferenceBodyAccessFeedback(targetKey: string) {
     return {
-      instruction: "第 1 步只传 target_key 调用 read_reference_facts 取得目录；第 2 步从目录复制本轮需要的 entry_id，用 target_key 和 entry_ids 打开条目。完整打开的新行会在同次回条中自动返回 resolved_rows，可直接使用其中的 evidence_id 和 span_id；仅在重新取得此前已打开行的句柄时才传 resolve_rows。不得用 open_evidence 或定位工具绕过隔离读取。",
+      instruction: "先用 read_reference_facts 的 target_key 取得目录，再按 entry_ids 及分页参数完整读取所选行。resolved_rows 返回已读行的 evidence_id 和整行 span_id；resolve_rows 只用于重新取得已读行句柄。未读隔离正文不能通过 open_evidence 或定位工具访问；完整读取后，可按该行 quote_locator 用 locate_evidence_span 定位模型选择的连续原文，无须先 open_evidence 重读。",
       target_key: targetKey,
       analysis_mode: "isolated",
       required_action: "call_read_reference_facts_with_target_key_then_open_selected_entry_ids",
@@ -5946,7 +5946,7 @@ export class ToolController {
             : { next_tool: access.read_tool, next_tool_arguments: toolArguments }),
           instruction: access.access_mode === "direct"
             ? "来源合法但不具备同条目录条件，具体原因见context_directory；非primary与缺唯一登记条号是不同原因，不代表无适用内容。已有正文可直接选择并定位精确片段，需要正文才按source_access读取当前同一来源，不退回全局第一页、不猜相邻归属。"
-            : "来源受引用读取政策约束，按source_access的精确入口取得目录或正文；不能用同条目录、open_evidence或定位工具绕过隔离。",
+            : "来源受引用读取政策约束，按source_access的精确入口取得目录或正文；不能用同条目录、open_evidence或定位工具读取未交付的隔离正文。完整读取后可按resolved_rows.quote_locator定位模型选择的精确片段，不需要同条目录。",
         };
       }
       const resources = this.evidence.evidence

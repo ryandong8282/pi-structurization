@@ -1043,6 +1043,43 @@ async function registeredIsolatedHtmlTableFixture(options: {
   };
 }
 
+test.each(["paragraph", "html_table"] as const)("%s exposes an executable precise locator only after isolated body delivery", async kind => {
+  const f = kind === "paragraph" ? await routingFixture() : await registeredIsolatedHtmlTableFixture();
+  const { workspace, controller } = f;
+  const targetKey = "isolatedTargetKey" in f ? f.isolatedTargetKey : f.targetKey;
+  const quote = kind === "paragraph" ? "应抽查一个样本" : "neutral-value-1-每批";
+  const manifest = await workspace.readEvidenceManifest();
+  const evidenceId = "isolatedEvidenceId" in f ? f.isolatedEvidenceId
+    : manifest.evidence.find(record => record.kind === "table_row" && record.text.includes(quote))!.evidence_id;
+  const draft = await readFile(workspace.workingSelectorPath, "utf8"), before = await workspace.readState();
+  expect(await controller.dispatch("locate_evidence_span", { evidence_id: evidenceId, quote }))
+    .toMatchObject({ ok: false, error: "isolated_reference_body_access_forbidden" });
+  const navigation = await controller.dispatch("read_reference_facts", { target_key: targetKey, evidence_ids: [evidenceId] }) as any;
+  expect(navigation).toMatchObject({ ok: true, metadata_only: true });
+  expect(JSON.stringify(navigation)).not.toContain("quote_locator");
+  expect(await controller.dispatch("locate_evidence_span", { evidence_id: evidenceId, quote }))
+    .toMatchObject({ ok: false, error: "isolated_reference_body_access_forbidden" });
+  const body = await controller.dispatch(navigation.next_tool, navigation.next_tool_arguments) as any;
+  const row = body.resolved_rows.find((entry: any) => entry.evidence_id === evidenceId);
+  expect(row).toMatchObject({ quote_locator: { tool: "locate_evidence_span", fixed_arguments: { evidence_id: evidenceId }, author_required_parameters: ["quote"] } });
+  const handles = await ModelSourceHandles.open(workspace.root), visible = await handles.encode(row) as any;
+  expect(visible.quote_locator.fixed_arguments.evidence_id).toMatch(/^e\d+$/u);
+  const tool = handles.wrapTools(createPiTools(controller)).find(entry => entry.name === visible.quote_locator.tool)!;
+  const args = { ...visible.quote_locator.fixed_arguments, quote, source_handle_scope: handles.scope };
+  expect(Check(tool.parameters, args)).toBe(true);
+  const reply = await tool.execute("neutral-precise-source", args, undefined as any, undefined as any, undefined as any);
+  const result = JSON.parse((reply.content[0] as any).text);
+  expect(result).toMatchObject({ ok: true, span: { span_id: expect.stringMatching(/^s\d+$/u), text_sha256: sha256Text(quote) } });
+  expect(manifest.evidence.find(record => record.evidence_id === evidenceId)!.text.slice(result.span.start, result.span.end)).toBe(quote);
+  expect(await controller.dispatch("open_evidence", { evidence_id: evidenceId }))
+    .toMatchObject({ ok: false, error: "isolated_reference_body_access_forbidden" });
+  expect(await readFile(workspace.workingSelectorPath, "utf8")).toBe(draft);
+  const after = await workspace.readState();
+  expect(after.next_history_sequence).toBe(before.next_history_sequence);
+  expect(after.validation_attempts).toBe(before.validation_attempts);
+  expect(after.selector_protocol).toEqual(before.selector_protocol);
+});
+
 function byEvidenceId(rows: Array<Record<string, any>>, evidenceId: string) {
   return rows.find((row) => row.evidence_id === evidenceId)!;
 }

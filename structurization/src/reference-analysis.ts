@@ -940,7 +940,7 @@ export async function readInlineReferenceEvidencePage(
     return {
       ok: false,
       error: "isolated_reference_body_read_forbidden",
-      instruction: "第 1 步只传 target_key 调用 read_reference_facts 取得目录；第 2 步从目录复制本轮需要的 entry_id，用 target_key 和 entry_ids 打开条目。完整打开的新行会在同次回条中自动返回 resolved_rows，可直接使用其中的 evidence_id 和 span_id；仅在重新取得此前已打开行的句柄时才传 resolve_rows。不得用 open_evidence、read_document_reference_evidence 或定位工具绕过隔离读取。",
+      instruction: "先用 read_reference_facts 的 target_key 取得目录，再按 entry_ids 及分页参数完整读取所选行。resolved_rows 返回已读行的 evidence_id 和整行 span_id；resolve_rows 只用于重新取得已读行句柄。不能用 open_evidence、read_document_reference_evidence 或定位工具读取尚未交付的隔离正文。目标作者读完一行后，可按该行 quote_locator 用 locate_evidence_span 定位自己选择的连续原文；读后定位不绕过隔离读取。",
       target_key: targetKey,
       analysis_mode: "isolated",
       required_action: "call_read_reference_facts_with_target_key_then_open_selected_entry_ids",
@@ -1603,7 +1603,12 @@ export async function readReferenceCatalog(
         row_index: request_.row_index, evidence_id: evidenceId, issues,
         instruction: "已登记引用行缺少有效整行 span。请报告登记表缺陷，不要猜测 span 或反复重试已阻塞的定位请求。" };
     }
-    resolved.push({ entry_id: entry.entry_id, row_index: request_.row_index, evidence_id: evidenceId, span_id: verified.span_id });
+    resolved.push({ entry_id: entry.entry_id, row_index: request_.row_index, evidence_id: evidenceId, span_id: verified.span_id,
+      ...(phase === "target" ? { quote_locator: {
+        tool: "locate_evidence_span", fixed_arguments: { evidence_id: evidenceId },
+        author_required_parameters: ["quote"], optional_parameters: ["prefix", "suffix"],
+      } } : {}),
+    });
   }
 
   if (request.skip_rest && request.skip_rest.reason) {
@@ -1673,7 +1678,8 @@ export async function readReferenceCatalog(
     ...(resolved.length > 0 ? {
       resolved_rows: resolved,
       citation_scope: "full_row",
-      instruction: "本次完整打开的每一行都会自动列入 resolved_rows，返回 evidence_id + span_id。可直接用这对标识引用整行，无须再次解析或定位。此前调用已打开的行仍可用 resolve_rows 获取。整行 span 不是单独的单位/数值/方法单元格，选择标量字段时应定位更小范围。",
+      instruction: "resolved_rows 只返回已完整读取并核验的行及其整行 span；此前已读行可用 resolve_rows 重新取得句柄。整行 span 不能代替独立的名称、单位、数值或方法片段。"
+        + (phase === "target" ? "需要精确片段时，复制该行 quote_locator.fixed_arguments，由你补入逐字连续 quote 调用 locate_evidence_span；重复文字可用 prefix/suffix 消歧。此入口允许定位已读隔离行，不要求先用 open_evidence 重读，不重新登记引用，也不自动判断单元格业务角色。未完整读取的行仍不可定位。" : "本回条不替模型选择业务字段或判断适用性。"),
     } : {}),
     ...(deferred.length > 0
       ? {

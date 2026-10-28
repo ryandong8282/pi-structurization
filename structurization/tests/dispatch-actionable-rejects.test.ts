@@ -186,10 +186,11 @@ describe("target dispatch actionable rejects", () => {
         writable_parameters: ["target_key"],
         do_not_edit: expect.any(String),
       });
-      expect(String(rejected.instruction)).toContain("只传 target_key");
+      expect(rejected.tool_arguments).toEqual({ target_key: expectedTargetKey });
+      expect(String(rejected.instruction)).toContain("target_key 取得目录");
       expect(String(rejected.instruction)).toContain("entry_ids");
-      expect(String(rejected.instruction)).toContain("自动返回 resolved_rows");
-      expect(String(rejected.instruction)).toContain("仅在重新取得此前已打开行");
+      expect(String(rejected.instruction)).toContain("resolved_rows 返回已读行");
+      expect(String(rejected.instruction)).toContain("resolve_rows 只用于重新取得已读行句柄");
       expect(String(rejected.required_action)).not.toContain("entry_ids_and_resolve_rows");
 
       const located = await controller.dispatch("locate_evidence_span", { evidence_id: evidenceId, quote: "被引要求" });

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Integrate the follow-up commit `c9afa628b3f06e786cb268d9dde72a048a34c68f` from pdf_ex_code.
+- Expose executable quote locators for fully delivered isolated reference rows; keep unread and partial rows isolated and coverage replies read-only.
+
 ## 0.1.1
 
 - Integrate the engine changes from pdf_ex_code branch `codex/acceptance-validation-followup` through commit `dab8a17d89058be2412098fbc1ca25db3df2af68`.
