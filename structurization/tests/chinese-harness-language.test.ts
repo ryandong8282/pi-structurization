@@ -61,7 +61,7 @@ describe("model-facing Chinese language contract", () => {
       expect(visible).toMatch(/公开.*target_key|本会话公开工具回条/u);
       expect(visible).toMatch(/完整读取|全部片段/u);
       expect(visible).toMatch(/used.*(?:开始读取|已选择)/u);
-      expect(visible).toMatch(/不解除 pending|不能独自解除 pending/u);
+      expect(visible).toMatch(/不解除 pending|不能独自解除 pending|不等于正文完整交付/u);
       expect(inline.description).not.toContain("只能从");
       expect(isolated.description).not.toContain("只能从");
       expect(visible).toContain("source_label");

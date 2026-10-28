@@ -6,6 +6,7 @@
 - Preserve original PDF display names, resume sealed publications and checkpointed transport retries, and reconcile ledger gaps with their registered source context.
 - Improve component authoring, continuation and isolated reference diagnostics while retaining source access boundaries and existing author records.
 - Export `hasResumableTransportRetry` and its counter, limit and retry-window types for consuming applications.
+- Keep unnumbered source documents publishable while rejecting false clause claims, and keep authoring-work navigation from persisting reference read policies.
 
 ## 0.1.0
 

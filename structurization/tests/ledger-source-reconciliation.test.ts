@@ -44,6 +44,26 @@ function fixture(foreign = external) {
 }
 
 describe("source-qualified publication ledger", () => {
+  test.each(["", "99.9.9"])("unnumbered sources validate claimed clause %j without requiring a new label", async sourceClause => {
+    const markdown = "接头应平整。检查数量：全数检查。";
+    const record = records(markdown)[0]!;
+    const f = fixture();
+    const item = { ...f.items[0]!, source_clause: sourceClause, requirement: record.text, evidence_ids: [record.evidence_id] };
+    const author = { ...f.plan.acceptance_items[0]!, ...item, reference_evidence_ids: [],
+      field_bindings: { ...f.plan.acceptance_items[0]!.field_bindings,
+        requirement: { status: "bound" as const, value_sha256: sha256Text(record.text), evidence_ids: [record.evidence_id],
+          source_fragments: [{ evidence_id: record.evidence_id, text: record.text }] } } };
+    const ledger = scanDocumentLedger(markdown, "unnumbered.md");
+    const accounting = await reconcileTargetDocumentSources({ ledger, markdown,
+      manifest: { ...f.manifest, source: { ...f.manifest.source, sha256: sha256Text(markdown), file_name: "unnumbered.md" },
+        evidence: [record], reference_occurrences: [] },
+      plan: { ...f.plan, acceptance_items: [author] }, items: [item] });
+    const report = reconcileLedgerCoverage({ ledger, items: [{ ...item, source_context: accounting.contexts.get(item.item_id!)! }] });
+    expect(report.applicable).toBe(false);
+    expect(report.ok).toBe(sourceClause === "");
+    expect(report.source_diagnostics?.map(row => row.code) ?? []).toEqual(sourceClause ? ["ledger_clause_source_mismatch"] : []);
+  });
+
   test("accepts clauses and table references in their actual bound source", async () => {
     const f = fixture(), r = await f.run();
     expect(r.reconciliation.ok).toBe(true);

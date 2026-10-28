@@ -88,7 +88,8 @@ describe("coverage repair semantic compiler handoff", () => {
   test("coverage-repair prompts tell the model to compile findings rather than wait for a pre-existing path", () => {
     expect(LEGACY_COVERAGE_PROTOCOL).toContain("durable review");
     expect(LEGACY_COVERAGE_PROTOCOL).toContain("缺项无现存 item 映射时允许有据最小新增修复");
-    expect(TARGET_SELECTOR_PROTOCOLS.reference_routes).toContain("import_scope.allowed_fields 不扩大");
+    expect(TARGET_SELECTOR_PROTOCOLS.reference_routes).toContain("import_scope.allowed_fields应精确申报实际选择的导入字段");
+    expect(TARGET_SELECTOR_PROTOCOLS.reference_routes).toContain("受已登记来源政策约束");
     // Per-occurrence authoritative routes remain in the real review/leaf
     // contract (covered by coverage-review-v4), rather than every author system.
     expect(TARGET_SELECTOR_SYSTEM_PROMPT).toContain("get_target_selector_contract");

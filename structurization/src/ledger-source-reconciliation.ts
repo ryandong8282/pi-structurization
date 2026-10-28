@@ -124,7 +124,9 @@ export async function reconcileTargetDocumentSources(input: {
     context.clause_valid = Boolean(context.clause_id && clauseSources.size);
     context.clause_sources = [...clauseSources.values()].map(document => ({ source_sha256: document.id, source_label: document.label }));
     if (clauseSources.has(mainId)) context.main_clause_ids = [context.clause_id];
-    if (!context.clause_valid) diagnose("source_clause", "ledger_clause_source_mismatch", context.clause_id,
+    // A source may have no numbered clauses. Missing labels remain the ledger's
+    // coverage concern; source identity checks validate only claimed clause IDs.
+    if (context.clause_id && !context.clause_valid) diagnose("source_clause", "ledger_clause_source_mismatch", context.clause_id,
       "条文号未落到项目实际绑定的来源条文中");
 
     for (const reference of tableReferenceOccurrences(result)) {

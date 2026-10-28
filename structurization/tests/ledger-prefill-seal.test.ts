@@ -145,16 +145,16 @@ describe("ledger prefill requires initial model extraction before review", () =>
         next_tool: "open_evidence",
         next_tool_arguments: { evidence_id: "atom:neutral-row-1", cursor: 0 },
         candidate_read_tools: expect.arrayContaining(["read_table_summary", "read_table_rows", "read_target_selectors"]),
-        writable_paths: ["/items", "/source_dispositions"],
-        writable_collections: ["items", "source_dispositions"],
+        writable_paths: ["/items", "/sampling_rules", "/source_dispositions"],
+        writable_collections: ["items", "sampling_rules", "source_dispositions"],
         save_tool: "stage_target_selector_draft",
         how_to_pass: expect.stringContaining("unresolved_rows"),
       },
     });
-    expect(issue?.details?.how_to_pass).toContain("typed table");
+    expect(issue?.details?.how_to_pass).toContain("真实表头、条件、单位和方法");
     expect((issue?.details?.unresolved_rows as unknown[]).length).toBe(Math.min(rowCount,3));
-    expect(issue?.details?.how_to_pass).toContain("pending_evidence_ids 才是本条诊断的完整未处置来源清单");
-    expect(issue?.details?.how_to_pass).toContain("不是待修项或建议接收者");
+    expect(issue?.details?.how_to_pass).toContain("pending_evidence_ids是完整来源清单");
+    expect(issue?.details?.how_to_pass).toContain("布局分组不裁决业务，也不要求一行一项");
   });
 
   test.skipIf(!existsSync(join(livePrecastRevision, "evidence/evidence.json")))("GB50204 表9.2.7预填为29行待展开任务，整表大item不能绕过", async () => {

@@ -2272,6 +2272,7 @@ test("isolated evidence directories serialize only opaque route metadata", async
     open_evidence_allowed: false,
     target_key: fixture.targetKey,
     tool_arguments: { target_key: fixture.targetKey },
+    context_directory: { available: false, unavailable_reasons: ["reference_access_required"] },
   };
   const context = await fixture.targetController.dispatch("get_target_context", { limit: 100 }) as any;
   expect(byEvidenceId(context.resource_inventory, fixture.isolatedId)).toEqual(expected);

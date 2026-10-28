@@ -719,7 +719,7 @@ describe("full batch target scheduling", () => {
       const options: FullBatchOptions = { artifactRoot, jobId, markdownPath,
         concurrency: 1, maxAttempts: 3, live: false, discoveryPlanPath };
       const first = await runFullBatch(options);
-      expect(first.status).toBe("passed");
+      expect(first.status, prettyJson(first)).toBe("passed");
       const sealed = await RevisionWorkspace.openRevision(artifactRoot, jobId, TARGET_IDS[0], 1);
       const draft = await RevisionWorkspace.reviseFromSealed(artifactRoot, jobId, TARGET_IDS[0]);
       const beforeSealed = await fileTreeSnapshot(sealed.root);

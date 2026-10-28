@@ -265,7 +265,7 @@ describe("target dispatch actionable rejects", () => {
       const visible = JSON.parse((rejected.content[0] as any).text);
       expect(visible).toMatchObject({ error: "inline_reference_catalog_not_available", source_handle_scope: codec.scope,
         next_tool: "read_document_reference_evidence", next_tool_arguments: { target_key: encoded.target_key, cursor: 0 } });
-      expect(visible.instruction).toContain("source_handle_scope");
+      expect(visible.instruction).toContain("来源所属目标由程序绑定");
       expect(visible.instruction).not.toContain("只可填写 target_key、cursor、limit");
       const read = await tools.find(tool => tool.name === visible.next_tool)!.execute("inline-page",
         { ...visible.next_tool_arguments, source_handle_scope: visible.source_handle_scope }, undefined as any, undefined as any, undefined as any);

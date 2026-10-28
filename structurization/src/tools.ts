@@ -5082,7 +5082,7 @@ export class ToolController {
   private async pendingSelectorAuthoringWork() {
     if (this.selectorStage === "coverage_repair" || (await this.workspace.readState()).last_valid_fingerprint) return undefined;
     const selectors = migrateTargetSelectorPlanForAuthoring(strictJsonParse(await readFile(this.workspace.workingSelectorPath, "utf8"))).plan;
-    const access = await this.evidenceAccessIndex(true);
+    const access = await this.evidenceAccessIndex(false);
     const hidden = this.inaccessibleTableFragmentEvidenceIds(access);
     const evidence = this.evidence.evidence.filter(record => !hidden.has(record.evidence_id)
       && this.evidenceAccess(record, access).access_mode === "direct");
