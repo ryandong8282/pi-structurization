@@ -16,6 +16,9 @@ const ignoredDirectories = new Set([".git", "coverage", "dist", "node_modules"])
 const files = [];
 
 function collectTypescriptFiles(directory) {
+	// This independently built NodeNext package emits .js imports with TypeScript 5.
+	// It is checked by structurization's own tsconfig, outside the SDK's strip-only build.
+	if (resolve(directory) === resolve("structurization")) return;
 	for (const entry of readdirSync(directory, { withFileTypes: true })) {
 		if (entry.isDirectory()) {
 			if (!ignoredDirectories.has(entry.name)) {

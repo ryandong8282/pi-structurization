@@ -1,3 +1,9 @@
+# pi-structurization 业务引擎
+
+本 fork 同时维护 [独立结构化识别业务包](structurization/README.md)：验收抽取、目录识别与模板识别。包名为 `pi-structurization`，应用安装固定 GitHub Release tarball；开发、测试、打包均在 `structurization/` 目录运行。
+
+下面保留上游 Pi SDK 文档。SDK 与业务包分别维护版本，业务包目前固定依赖 SDK 1.2.0。
+
 <p align="center">
   <a href="https://pi.dev">
     <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">

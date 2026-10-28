@@ -1,0 +1,74 @@
+{
+  "schema_version": "gb50202-subagent-review/v1",
+  "target": "7.2 排桩",
+  "model_boundary": "external_subagent_emulated_by_chatgpt",
+  "source_basis": "packages/pi-agent-pdf/fixtures/real/GB_50202-2018.md lines 963-1012",
+  "prose_decisions": [
+    {
+      "clause_id": "7.2.1",
+      "disposition": "shared_context",
+      "reason": "施工前原材料检验是范围性的前置检查要求；本条未给出可独立判定的材料质量特征、限值或方法，不单独制造一个最终验收叶。"
+    },
+    {
+      "clause_id": "7.2.2",
+      "disposition": "shared_context",
+      "reason": "试成孔及其数量是施工前试验/过程准备要求；数量约束本身不把该过程前提提升为最终质量验收叶。"
+    },
+    {
+      "clause_id": "7.2.3",
+      "disposition": "shared_context",
+      "reason": "本条是成孔、钢筋笼、混凝土灌注的过程控制总括要求；具体可独立判定项目由后续表格和条文承载。"
+    },
+    {
+      "clause_id": "7.2.4",
+      "disposition": "bind_existing_item",
+      "target_table": "7.2.6",
+      "target_item_contains": "桩身完整性",
+      "reason": "表7.2.6已有桩身完整性最终叶；7.2.4补充其检测方法、抽检比例/最少根数、桩墙合一100%分支、声波透射法分支及III/IV类钻芯验证条件，不应重复制造同名叶。"
+    },
+    {
+      "clause_id": "7.2.5",
+      "disposition": "bind_existing_item_and_gap",
+      "target_table": "7.2.6",
+      "target_item_contains": "混凝土强度",
+      "reason": "50m³/12h留置强度试件规则属于表7.2.6混凝土强度项目的外部抽样语义；同时“有抗渗等级要求”形成可独立于强度判定的条件性抗渗等级检测语义，当前59个表格叶中没有抗渗等级叶。",
+      "finding": {
+        "finding_type": "semantic_coverage_gap",
+        "missing_item_name": "灌注桩抗渗等级",
+        "condition": "有抗渗等级要求的灌注桩",
+        "sampling": "一个级配不宜少于3组"
+      }
+    },
+    {
+      "clause_id": "7.2.7",
+      "disposition": "bind_existing_items",
+      "target_tables": [
+        "7.2.8",
+        "7.2.9",
+        "7.2.10",
+        "7.2.11"
+      ],
+      "target_item_contains_any": [
+        "桩身强度",
+        "墙体强度"
+      ],
+      "reason": "截水帷幕强度已由各工法质量检验表中的桩身/墙体强度叶承载；7.2.7补充钻芯法和按工法分支的取芯数量，应作为共享/外部抽样与方法语义绑定这些叶。"
+    }
+  ],
+  "table_risk_decisions": [
+    {
+      "table_id": "7.2.6",
+      "item_contains": "垂直度",
+      "disposition": "semantic_review",
+      "reason": "同一检查维度包含普通排桩≤1/100与桩墙合一≤1/200两个条件值，必须保留条件分支而不是拆成无条件重复项。"
+    },
+    {
+      "table_id": "7.2.6",
+      "item_contains": "泥浆指标",
+      "disposition": "semantic_review",
+      "reason": "允许值引用本标准第5.6节，需要确认被引要求的适用范围和展开语义。"
+    }
+  ],
+  "expected_status": "repair",
+  "expected_gap_count": 1
+}

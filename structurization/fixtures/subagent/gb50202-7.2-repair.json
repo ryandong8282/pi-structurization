@@ -1,0 +1,22 @@
+{
+  "schema_version": "gb50202-subagent-repair/v1",
+  "target": "7.2 排桩",
+  "finding_id": "subagent-gap:7.2.5:anti-permeability",
+  "source_clause": "7.2.5",
+  "action": "add_acceptance_item",
+  "item": {
+    "item_id": "subagent:7.2.5:anti-permeability",
+    "name": "抗渗等级",
+    "category": "主控项目",
+    "category_reason": "Subagent replay judgment: treat the conditional anti-permeability test as part of the same concrete-quality control family as 7.2.5/表7.2.6混凝土强度. The source does not explicitly label this standalone sentence 主控/一般, so this is a model judgment, not a quoted classification.",
+    "requirement": "有抗渗等级要求的灌注桩尚应留置抗渗等级检测试件",
+    "quantity": "一个级配不宜少于 3 组",
+    "inspection_data_type": "review",
+    "inspection_data_type_reason": "The clause requires anti-permeability grade specimens but does not by itself state the downstream result representation/acceptance computation; keep metadata under review rather than guessing.",
+    "sampling_reason": "7.2.5 explicitly says one mix proportion should retain no fewer than 3 groups when anti-permeability grade is required."
+  },
+  "reviewer": {
+    "expected_status": "approved",
+    "reason": "The repair adds the previously missing conditional anti-permeability judgment and preserves its exact condition and sampling quantity. Recheck only the repaired leaf and the finding evidence; previously clean table leaves stay outside repair_delta."
+  }
+}

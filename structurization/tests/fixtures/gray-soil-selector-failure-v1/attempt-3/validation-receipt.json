@@ -1,0 +1,67 @@
+{
+  "ok": false,
+  "issues": [
+    {
+      "code": "semantic_referenced_clause_parent",
+      "path": "/semantic_evidence/6/parent_semantic_id",
+      "message": "A referenced_clause must name the reference_anchor whose dependency it resolves",
+      "decision_path": "/semantic_nodes/6/parent_semantic_id"
+    },
+    {
+      "code": "semantic_referenced_clause_parent",
+      "path": "/semantic_evidence/7/parent_semantic_id",
+      "message": "A referenced_clause must name the reference_anchor whose dependency it resolves",
+      "decision_path": "/semantic_nodes/7/parent_semantic_id"
+    },
+    {
+      "code": "semantic_referenced_clause_parent",
+      "path": "/semantic_evidence/8/parent_semantic_id",
+      "message": "A referenced_clause must name the reference_anchor whose dependency it resolves",
+      "decision_path": "/semantic_nodes/8/parent_semantic_id"
+    },
+    {
+      "code": "semantic_referenced_clause_parent",
+      "path": "/semantic_evidence/9/parent_semantic_id",
+      "message": "A referenced_clause must name the reference_anchor whose dependency it resolves",
+      "decision_path": "/semantic_nodes/9/parent_semantic_id"
+    },
+    {
+      "code": "semantic_reference_not_materialized",
+      "path": "/acceptance_items/2/field_bindings/method",
+      "message": "The receiving reference-composition field must bind the semantic anchor, shared referenced context, and the resolved target nodes assigned to that item",
+      "details": {
+        "expansion_id": "semantic-reference:fd673026a37e1ec23ec7",
+        "missing_semantic_ids": [
+          "semantic:ee57b32944c7f571fb07",
+          "semantic:2340002fc35374e402aa",
+          "semantic:f91d79b60352f38feecf",
+          "semantic:7caf5109a413c309d83f",
+          "semantic:780c2e37de16fd70d3fe"
+        ]
+      },
+      "decision_path": "/items/2/field_bindings/method"
+    }
+  ],
+  "fingerprint": "",
+  "plan_sha256": "",
+  "validation_sequence": 3,
+  "repair": {
+    "mode": "modeling",
+    "repair_source": "validation",
+    "active_cluster": null,
+    "total_issue_count": 5,
+    "validation_fingerprint": "45c447bfa158108f074b7d53dbd91867e3ed405740e97b3b8beb2528e8c4a4f6",
+    "selector_fingerprint": "",
+    "coverage_review_fingerprint": "",
+    "coverage_finding_ids": [],
+    "coverage_evidence_ids": [],
+    "non_converging_rounds": 0,
+    "fresh_session_required": false,
+    "session_epoch": 0
+  },
+  "issue_delta": 5,
+  "stage": "compiled-source-plan",
+  "selector_fingerprint": "cad00abdea008b76b94efe2dc7847ec2e5ccd189072ec0e870849d33cecf5f04",
+  "compiled_plan_sha256": "e97213d88bca2577f268abaf1143cb8584a38ba7786983cfed2b3471b6bcf5c6",
+  "instruction": "Repair only the selectors responsible for these compiler validation diagnostics; never patch the compiled plan."
+}

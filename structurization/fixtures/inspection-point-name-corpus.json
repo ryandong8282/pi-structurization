@@ -1,0 +1,250 @@
+{
+  "schema_version": "inspection-point-name-corpus/v1",
+  "documents": [
+    {
+      "document_id": "welding-prose",
+      "semantic_suite": "welding-format-perturbation",
+      "format": "prose",
+      "lot_name": "钢构件焊接检验批",
+      "sources": [
+        {
+          "source_id": "weld-defects",
+          "role": "item",
+          "text": "焊缝表面不得有裂纹、焊瘤、烧穿等缺陷。检验方法：观察检查。检查数量：全数检查。"
+        },
+        {
+          "source_id": "butt-reinforcement",
+          "role": "item",
+          "text": "对接焊缝余高允许偏差为0～3mm。检验方法：焊缝量规检查。检查数量：每批抽查10%。"
+        },
+        {
+          "source_id": "welding-process-context",
+          "role": "context",
+          "text": "焊接前应清除坡口表面的油污，并按焊接工艺评定施焊。"
+        }
+      ],
+      "gold_items": [
+        {
+          "item_id": "weld-surface-defects",
+          "source_id": "weld-defects",
+          "name": "焊缝表面缺陷",
+          "category": "主控项目",
+          "requirement": "焊缝表面不得有裂纹、焊瘤、烧穿等缺陷。",
+          "method": "观察检查。",
+          "quantity": "全数检查。",
+          "must_preserve": ["不得", "裂纹", "焊瘤", "烧穿"]
+        },
+        {
+          "item_id": "butt-weld-reinforcement",
+          "source_id": "butt-reinforcement",
+          "name": "对接焊缝余高",
+          "category": "一般项目",
+          "requirement": "对接焊缝余高允许偏差为0～3mm。",
+          "method": "焊缝量规检查。",
+          "quantity": "每批抽查10%。",
+          "must_preserve": ["对接焊缝", "0～3mm"]
+        }
+      ]
+    },
+    {
+      "document_id": "welding-html-table",
+      "semantic_suite": "welding-format-perturbation",
+      "format": "html-table",
+      "lot_name": "钢构件焊接检验批",
+      "sources": [
+        {
+          "source_id": "weld-defects",
+          "role": "item",
+          "text": "<tr><td>主控项目</td><td>焊缝表面不得有裂纹、焊瘤、烧穿等缺陷。</td><td>观察检查。</td><td>全数检查。</td></tr>"
+        },
+        {
+          "source_id": "butt-reinforcement",
+          "role": "item",
+          "text": "<tr><td>一般项目</td><td>对接焊缝余高允许偏差为0～3mm。</td><td>焊缝量规检查。</td><td>每批抽查10%。</td></tr>"
+        },
+        {
+          "source_id": "welding-process-context",
+          "role": "context",
+          "text": "<p>焊接前应清除坡口表面的油污，并按焊接工艺评定施焊。</p>"
+        }
+      ],
+      "gold_items": [
+        {
+          "item_id": "weld-surface-defects",
+          "source_id": "weld-defects",
+          "name": "焊缝表面缺陷",
+          "category": "主控项目",
+          "requirement": "焊缝表面不得有裂纹、焊瘤、烧穿等缺陷。",
+          "method": "观察检查。",
+          "quantity": "全数检查。",
+          "must_preserve": ["不得", "裂纹", "焊瘤", "烧穿"]
+        },
+        {
+          "item_id": "butt-weld-reinforcement",
+          "source_id": "butt-reinforcement",
+          "name": "对接焊缝余高",
+          "category": "一般项目",
+          "requirement": "对接焊缝余高允许偏差为0～3mm。",
+          "method": "焊缝量规检查。",
+          "quantity": "每批抽查10%。",
+          "must_preserve": ["对接焊缝", "0～3mm"]
+        }
+      ]
+    },
+    {
+      "document_id": "welding-ocr-breaks",
+      "semantic_suite": "welding-format-perturbation",
+      "format": "ocr-broken-lines",
+      "lot_name": "钢构件焊接检验批",
+      "sources": [
+        {
+          "source_id": "weld-defects",
+          "role": "item",
+          "text": "焊缝表面不得有裂纹、焊\n瘤、烧穿等缺陷。\n检验方法：观察检查。\n检查数量：全数检查。"
+        },
+        {
+          "source_id": "butt-reinforcement",
+          "role": "item",
+          "text": "对接焊缝余高允许偏差为\n0～3mm。\n检验方法：焊缝量规检查。\n检查数量：每批抽查10%。"
+        },
+        {
+          "source_id": "welding-process-context",
+          "role": "context",
+          "text": "焊接前应清除坡口表面的油\n污，并按焊接工艺评定施焊。"
+        }
+      ],
+      "gold_items": [
+        {
+          "item_id": "weld-surface-defects",
+          "source_id": "weld-defects",
+          "name": "焊缝表面缺陷",
+          "category": "主控项目",
+          "requirement": "焊缝表面不得有裂纹、焊\n瘤、烧穿等缺陷。",
+          "method": "观察检查。",
+          "quantity": "全数检查。",
+          "must_preserve": ["不得", "裂纹", "焊\n瘤", "烧穿"]
+        },
+        {
+          "item_id": "butt-weld-reinforcement",
+          "source_id": "butt-reinforcement",
+          "name": "对接焊缝余高",
+          "category": "一般项目",
+          "requirement": "对接焊缝余高允许偏差为\n0～3mm。",
+          "method": "焊缝量规检查。",
+          "quantity": "每批抽查10%。",
+          "must_preserve": ["对接焊缝", "0～3mm"]
+        }
+      ]
+    },
+    {
+      "document_id": "materials-and-connections",
+      "semantic_suite": "cross-profession-positive-negative",
+      "format": "damaged-prose",
+      "lot_name": "材料与连接安装检验批",
+      "sources": [
+        {
+          "source_id": "material-variety",
+          "role": "item",
+          "text": "铝合金材料的品种、规格、性能等应符合国家现行有关标准和设计要求。检查质量合格证明文件、标识及检验报告等。全数检查。"
+        },
+        {
+          "source_id": "suspension-fastening",
+          "role": "item",
+          "text": "悬吊装置的连接应牢固可靠，不得有松动。检验方法：观察和扳手检查。检查数量：每个检验批抽查10处。"
+        },
+        {
+          "source_id": "material-storage-context",
+          "role": "context",
+          "text": "材料进场后应分类堆放并采取防雨措施。"
+        }
+      ],
+      "gold_items": [
+        {
+          "item_id": "aluminium-variety-spec-performance",
+          "source_id": "material-variety",
+          "name": "铝合金材料品种、规格、性能",
+          "category": "主控项目",
+          "requirement": "铝合金材料的品种、规格、性能等应符合国家现行有关标准和设计要求。",
+          "method": "检查质量合格证明文件、标识及检验报告等。",
+          "quantity": "全数检查。",
+          "must_preserve": ["品种", "规格", "性能", "设计要求"]
+        },
+        {
+          "item_id": "suspension-connection-fastening",
+          "source_id": "suspension-fastening",
+          "name": "悬吊装置连接牢固性",
+          "category": "一般项目",
+          "requirement": "悬吊装置的连接应牢固可靠，不得有松动。",
+          "method": "观察和扳手检查。",
+          "quantity": "每个检验批抽查10处。",
+          "must_preserve": ["牢固可靠", "不得", "松动"]
+        }
+      ]
+    },
+    {
+      "document_id": "joint-reference-independent-dimensions",
+      "semantic_suite": "qualifier-reference-dimensions",
+      "format": "mixed-appendix-and-prose",
+      "lot_name": "节点与支承安装检验批",
+      "sources": [
+        {
+          "source_id": "tee-joint-fillet",
+          "role": "item",
+          "text": "T形接头角焊缝的焊脚尺寸不得小于8mm，允许偏差为0～2mm。检验方法：焊缝量规检查。"
+        },
+        {
+          "source_id": "waterproof-appendix-reference",
+          "role": "item",
+          "text": "防水层材料的品种、规格和性能应符合本规范附录A的规定；复验结果应符合设计要求。检验方法：检查合格证和复验报告。"
+        },
+        {
+          "source_id": "support-dimensions",
+          "role": "item",
+          "text": "支承面顶板标高允许偏差为±3mm；支座锚栓位置允许偏差为5mm。检验方法：水准仪和钢尺检查。"
+        }
+      ],
+      "gold_items": [
+        {
+          "item_id": "tee-joint-fillet-size",
+          "source_id": "tee-joint-fillet",
+          "name": "T形接头角焊缝焊脚尺寸",
+          "category": "主控项目",
+          "requirement": "T形接头角焊缝的焊脚尺寸不得小于8mm，允许偏差为0～2mm。",
+          "method": "焊缝量规检查。",
+          "quantity": "",
+          "must_preserve": ["T形接头", "不得小于8mm", "0～2mm"]
+        },
+        {
+          "item_id": "waterproof-material-properties",
+          "source_id": "waterproof-appendix-reference",
+          "name": "防水层材料品种、规格、性能",
+          "category": "主控项目",
+          "requirement": "防水层材料的品种、规格和性能应符合本规范附录A的规定；复验结果应符合设计要求。",
+          "method": "检查合格证和复验报告。",
+          "quantity": "",
+          "must_preserve": ["附录A", "设计要求"]
+        },
+        {
+          "item_id": "support-top-plate-elevation",
+          "source_id": "support-dimensions",
+          "name": "支承面顶板标高",
+          "category": "一般项目",
+          "requirement": "支承面顶板标高允许偏差为±3mm；",
+          "method": "水准仪和钢尺检查。",
+          "quantity": "",
+          "must_preserve": ["±3mm"]
+        },
+        {
+          "item_id": "support-anchor-position",
+          "source_id": "support-dimensions",
+          "name": "支座锚栓位置",
+          "category": "一般项目",
+          "requirement": "支座锚栓位置允许偏差为5mm。",
+          "method": "水准仪和钢尺检查。",
+          "quantity": "",
+          "must_preserve": ["5mm"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "mode": "semantic_table_gold",
+  "standard_no": "GB 50576-2010",
+  "standard_name": "铝合金结构工程施工质量验收规范",
+  "source_documents": ["标准结构化工具20260806.doc"],
+  "scope_note": "人工检查第3项和第5项的语义金标。checkpoint_count 按可独立判定的检查维度计数；同一检查点下的尺寸区间属于条件分支，不按单元格机械拆项。表号、表题、行列路径、单位、条件、允许值和方法应作为独立属性保存。",
+  "tables": [
+    {
+      "table_no": "7.4.3",
+      "title": "螺栓球加工的允许偏差",
+      "source_lines": [805, 815],
+      "source_kind": "direct",
+      "checkpoint_count": 6,
+      "checkpoints": [
+        {"name": "螺栓球圆度", "row_path": ["圆度"], "conditions": ["d≤120mm", "d>120mm"], "allowed_values": ["1.0mm", "1.5mm"], "method": "用卡尺和游标卡尺检查"},
+        {"name": "螺栓球同一轴线上两铣平面的平行度", "row_path": ["同一轴线上两铣平面的平行度"], "conditions": ["d≤120mm", "d>120mm"], "allowed_values": ["0.1mm", "0.2mm"], "method": "用百分表V形块检查"},
+        {"name": "螺栓球铣平面距球中心距离", "row_path": ["铣平面距球中心距离"], "allowed_values": ["±0.1mm"], "method": "用游标卡尺检查"},
+        {"name": "螺栓球相邻螺栓孔中心线夹角", "row_path": ["相邻螺栓孔中心线夹角"], "allowed_values": ["±30′"], "method": "用分度头检查"},
+        {"name": "螺栓球两铣平面与螺栓孔轴线垂直度", "row_path": ["两铣平面与螺栓孔轴线垂直度"], "allowed_values": ["0.005r"], "method": "用百分表检查"},
+        {"name": "球、毂毛坯直径", "row_path": ["球、毂毛坯直径"], "conditions": ["d≤120mm", "d>120mm"], "allowed_values": ["+2.0mm/-0.5mm", "+3.0mm/-1.0mm"], "method": "用卡尺和游标卡尺检查"}
+      ]
+    },
+    {
+      "table_no": "7.4.4",
+      "title": "管杆件加工的允许偏差",
+      "source_lines": [817, 827],
+      "source_kind": "direct",
+      "checkpoint_count": 3,
+      "checkpoints": ["管杆件长度", "管杆件端面对管轴的垂直度", "管杆件管口曲线"]
+    },
+    {
+      "table_no": "7.5.1-1",
+      "title": "A、B级螺栓孔径的允许偏差",
+      "source_lines": [845, 853],
+      "source_kind": "direct",
+      "checkpoint_count": 2,
+      "checkpoint_note": "公称直径与孔直径是两个独立判定列；10～18、18～30、30～50为各自的条件分支。"
+    },
+    {
+      "table_no": "7.5.1-2",
+      "title": "C级螺栓孔的允许偏差",
+      "source_lines": [845, 859],
+      "source_kind": "direct",
+      "checkpoint_count": 3,
+      "checkpoints": ["C级螺栓孔直径", "C级螺栓孔圆度", "C级螺栓孔垂直度"]
+    },
+    {
+      "table_no": "7.6.1",
+      "title": "槽口尺寸的允许偏差",
+      "source_lines": [897, 908],
+      "source_kind": "direct",
+      "checkpoint_count": 3,
+      "checkpoints": ["槽口尺寸A", "槽口尺寸B", "槽口尺寸C"]
+    },
+    {
+      "table_no": "7.6.2",
+      "title": "豁口尺寸的允许偏差",
+      "source_lines": [910, 921],
+      "source_kind": "direct",
+      "checkpoint_count": 3,
+      "checkpoints": ["豁口尺寸A", "豁口尺寸B", "豁口尺寸C"]
+    },
+    {
+      "table_no": "7.6.3",
+      "title": "榫头尺寸的允许偏差",
+      "source_lines": [923, 936],
+      "source_kind": "direct",
+      "checkpoint_count": 3,
+      "checkpoints": ["榫头尺寸A", "榫头尺寸B", "榫头尺寸C"],
+      "ocr_note": "引用句被跨行拆开，不能依赖单行、标题或连续编号。"
+    },
+    {
+      "table_no": "C.0.1",
+      "title": "单元构件组装的允许偏差",
+      "source_lines": [2007, 2011],
+      "source_kind": "reference",
+      "reference_origins": ["8.2.1"],
+      "checkpoint_count": 6,
+      "checkpoints": ["单元构件长度", "单元构件宽度", "单元构件对角线长度", "单元构件平面度", "接缝高低差", "接缝间隙"]
+    },
+    {
+      "table_no": "E.0.1",
+      "title": "单层铝合金结构中柱子安装的允许偏差",
+      "source_lines": [2031, 2037],
+      "source_kind": "reference",
+      "checkpoint_count": 4,
+      "checkpoint_note": "柱基准点标高和柱轴线垂直度各自包含条件分支，不按分支重复制造名称相同的项目。"
+    },
+    {
+      "table_no": "E.0.2",
+      "title": "墙架、檩条等次要构件安装的允许偏差",
+      "source_lines": [2043, 2049],
+      "source_kind": "reference",
+      "checkpoint_count": 7
+    }
+  ],
+  "negative_cases": [
+    "空白质量验收记录模板",
+    "仅展示填写方式的示例表",
+    "无独立可检验命题的汇总表或说明表"
+  ]
+}

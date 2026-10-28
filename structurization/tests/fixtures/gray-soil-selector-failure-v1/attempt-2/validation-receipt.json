@@ -1,0 +1,134 @@
+{
+  "ok": false,
+  "issues": [
+    {
+      "code": "semantic_continuation_relation",
+      "path": "/semantic_evidence/1",
+      "message": "A continuation must share the materialized item of an acceptance-item parent instead of becoming a standalone item",
+      "decision_path": "/semantic_nodes/1"
+    },
+    {
+      "code": "semantic_continuation_relation",
+      "path": "/semantic_evidence/3",
+      "message": "A continuation must share the materialized item of an acceptance-item parent instead of becoming a standalone item",
+      "decision_path": "/semantic_nodes/3"
+    },
+    {
+      "code": "semantic_continuation_relation",
+      "path": "/semantic_evidence/5",
+      "message": "A continuation must share the materialized item of an acceptance-item parent instead of becoming a standalone item",
+      "decision_path": "/semantic_nodes/5"
+    },
+    {
+      "code": "semantic_referenced_clause_parent",
+      "path": "/semantic_evidence/8/parent_semantic_id",
+      "message": "A referenced_clause must name the reference_anchor whose dependency it resolves",
+      "decision_path": "/semantic_nodes/8/parent_semantic_id"
+    },
+    {
+      "code": "semantic_referenced_clause_parent",
+      "path": "/semantic_evidence/9/parent_semantic_id",
+      "message": "A referenced_clause must name the reference_anchor whose dependency it resolves",
+      "decision_path": "/semantic_nodes/9/parent_semantic_id"
+    },
+    {
+      "code": "semantic_referenced_clause_parent",
+      "path": "/semantic_evidence/10/parent_semantic_id",
+      "message": "A referenced_clause must name the reference_anchor whose dependency it resolves",
+      "decision_path": "/semantic_nodes/10/parent_semantic_id"
+    },
+    {
+      "code": "semantic_referenced_clause_parent",
+      "path": "/semantic_evidence/11/parent_semantic_id",
+      "message": "A referenced_clause must name the reference_anchor whose dependency it resolves",
+      "decision_path": "/semantic_nodes/11/parent_semantic_id"
+    },
+    {
+      "code": "semantic_reference_anchor_role",
+      "path": "/semantic_references/0/anchor_semantic_id",
+      "message": "A semantic reference must originate from a reference_anchor node",
+      "decision_path": "/references/0/anchor_semantic_id"
+    },
+    {
+      "code": "semantic_reference_destination_missing",
+      "path": "/semantic_references/0/destination_bindings",
+      "message": "A resolved semantic reference must name the receiving item fields",
+      "decision_path": "/references/0/destination_bindings"
+    },
+    {
+      "code": "semantic_reference_target_role",
+      "path": "/semantic_references/1/target_semantic_ids",
+      "message": "Reference expansion targets must be referenced_clause, acceptance_item, or table_criterion nodes",
+      "details": {
+        "semantic_id": "semantic:d51fd28c0932eeef41ad"
+      },
+      "decision_path": "/references/1/target_semantic_ids"
+    },
+    {
+      "code": "semantic_reference_not_materialized",
+      "path": "/acceptance_items/0/field_bindings/note",
+      "message": "The receiving reference-composition field must bind the semantic anchor, shared referenced context, and the resolved target nodes assigned to that item",
+      "details": {
+        "expansion_id": "semantic-reference:1b97c0da16150756ebaf",
+        "missing_semantic_ids": [
+          "semantic:d51fd28c0932eeef41ad"
+        ]
+      },
+      "decision_path": "/items/0/field_bindings/note"
+    },
+    {
+      "code": "semantic_reference_target_role",
+      "path": "/semantic_references/2/target_semantic_ids",
+      "message": "Reference expansion targets must be referenced_clause, acceptance_item, or table_criterion nodes",
+      "details": {
+        "semantic_id": "semantic:010a7f67a3f45e11cc43"
+      },
+      "decision_path": "/references/2/target_semantic_ids"
+    },
+    {
+      "code": "semantic_reference_not_materialized",
+      "path": "/acceptance_items/1/field_bindings/note",
+      "message": "The receiving reference-composition field must bind the semantic anchor, shared referenced context, and the resolved target nodes assigned to that item",
+      "details": {
+        "expansion_id": "semantic-reference:f038f5fca99605d7b0aa",
+        "missing_semantic_ids": [
+          "semantic:010a7f67a3f45e11cc43"
+        ]
+      },
+      "decision_path": "/items/1/field_bindings/note"
+    },
+    {
+      "code": "unhandled_evidence",
+      "path": "/evidence_dispositions",
+      "message": "Every evidence atom marked requires_disposition must be explicitly handled",
+      "details": {
+        "evidence_ids": [
+          "atom:bc72e30ee27224d20726c794806974640242750ae524f0442aeb9a5943eab597"
+        ]
+      },
+      "decision_path": "/evidence_dispositions"
+    }
+  ],
+  "fingerprint": "",
+  "plan_sha256": "",
+  "validation_sequence": 2,
+  "repair": {
+    "mode": "modeling",
+    "repair_source": "validation",
+    "active_cluster": null,
+    "total_issue_count": 14,
+    "validation_fingerprint": "f306f028ca1b0c2851c77dc331f4b281ec7bf5e974688ffc2fa65510b509c5ec",
+    "selector_fingerprint": "",
+    "coverage_review_fingerprint": "",
+    "coverage_finding_ids": [],
+    "coverage_evidence_ids": [],
+    "non_converging_rounds": 0,
+    "fresh_session_required": false,
+    "session_epoch": 0
+  },
+  "issue_delta": 14,
+  "stage": "compiled-source-plan",
+  "selector_fingerprint": "7d8aa961cbde6ad2a7ca652fea277ebdb30a5bc37f90b50967e1cd5408a3b012",
+  "compiled_plan_sha256": "53eb4362b4b5284423734d485e647b1ea7b61665fe5a8fce795bed8023251a9d",
+  "instruction": "Repair only the selectors responsible for these compiler validation diagnostics; never patch the compiled plan."
+}

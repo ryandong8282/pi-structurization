@@ -1,0 +1,2 @@
+import { REFERENCE_ACTION_GUIDANCE_ZH as prompt_REFERENCE_ACTION_GUIDANCE_ZH } from "./acceptance-prompt-suite.js";
+export const REFERENCE_ACTION_GUIDANCE_ZH = prompt_REFERENCE_ACTION_GUIDANCE_ZH;

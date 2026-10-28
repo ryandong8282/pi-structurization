@@ -1,0 +1,56 @@
+{
+  "schema_version": "selector-failure-fixture/v1",
+  "fixture_id": "gb50209-gray-soil-2026-08-10",
+  "source_run_id": "selector-regression-2026-08-10T08-19-16-559Z-58a4088e",
+  "source_revision_relative_path": "artifacts/jobs/selector-regression-2026-08-10T08-19-16-559Z-58a4088e-gb50209/targets/t-_E7_81_B0_E5_9C_9F_E5_9E_AB_E5_B1_82/revisions/000001",
+  "target_id": "t-灰土垫层",
+  "evidence_fingerprint": "afcbb786865a8d1c4711c74b556cd5f103cfc7bf17d740b4412b234e80a1a918",
+  "attempts": [
+    {
+      "attempt": 1,
+      "timestamp": "2026-08-10T08:24:10.104Z",
+      "selector_fingerprint": "77983ee9ec34ead2377da11edd27c69fc2d93f3d85845bcccf9dd4615c755445",
+      "compiled_plan_sha256": "dec88a05750a6b086a2cd5f24a50dc86bf872ec34d7767d5f6402bdcdcbdbcd7",
+      "issue_codes": [
+        "schema",
+        "schema"
+      ]
+    },
+    {
+      "attempt": 2,
+      "timestamp": "2026-08-10T08:24:42.266Z",
+      "selector_fingerprint": "7d8aa961cbde6ad2a7ca652fea277ebdb30a5bc37f90b50967e1cd5408a3b012",
+      "compiled_plan_sha256": "53eb4362b4b5284423734d485e647b1ea7b61665fe5a8fce795bed8023251a9d",
+      "issue_codes": [
+        "semantic_continuation_relation",
+        "semantic_continuation_relation",
+        "semantic_continuation_relation",
+        "semantic_referenced_clause_parent",
+        "semantic_referenced_clause_parent",
+        "semantic_referenced_clause_parent",
+        "semantic_referenced_clause_parent",
+        "semantic_reference_anchor_role",
+        "semantic_reference_destination_missing",
+        "semantic_reference_target_role",
+        "semantic_reference_not_materialized",
+        "semantic_reference_target_role",
+        "semantic_reference_not_materialized",
+        "unhandled_evidence"
+      ]
+    },
+    {
+      "attempt": 3,
+      "timestamp": "2026-08-10T08:25:33.259Z",
+      "selector_fingerprint": "cad00abdea008b76b94efe2dc7847ec2e5ccd189072ec0e870849d33cecf5f04",
+      "compiled_plan_sha256": "e97213d88bca2577f268abaf1143cb8584a38ba7786983cfed2b3471b6bcf5c6",
+      "issue_codes": [
+        "semantic_referenced_clause_parent",
+        "semantic_referenced_clause_parent",
+        "semantic_referenced_clause_parent",
+        "semantic_referenced_clause_parent",
+        "semantic_reference_not_materialized"
+      ]
+    }
+  ],
+  "note": "Reconstructed from immutable tool events immediately before each of the three strict validator calls. Post-budget selector patches are intentionally excluded."
+}

@@ -1,0 +1,45 @@
+{
+  "ok": false,
+  "issues": [
+    {
+      "code": "schema",
+      "path": "/table_assembly/logical_tables/0/fragment_ids",
+      "message": "must NOT have fewer than 1 items",
+      "details": {
+        "limit": 1
+      },
+      "decision_path": "/table_assembly/logical_tables/0/fragment_ids"
+    },
+    {
+      "code": "schema",
+      "path": "/shared_sampling_rules/1/receiving_item_ids",
+      "message": "must NOT have fewer than 1 items",
+      "details": {
+        "limit": 1
+      },
+      "decision_path": "/sampling_rules/1/receiving_item_ids"
+    }
+  ],
+  "fingerprint": "",
+  "plan_sha256": "",
+  "validation_sequence": 1,
+  "repair": {
+    "mode": "modeling",
+    "repair_source": "validation",
+    "active_cluster": null,
+    "total_issue_count": 2,
+    "validation_fingerprint": "f70227f3c0f74ad9da673e1a5ae6f8d86946db1ac7312a0150bd235b2687d82d",
+    "selector_fingerprint": "",
+    "coverage_review_fingerprint": "",
+    "coverage_finding_ids": [],
+    "coverage_evidence_ids": [],
+    "non_converging_rounds": 0,
+    "fresh_session_required": false,
+    "session_epoch": 0
+  },
+  "issue_delta": 2,
+  "stage": "compiled-source-plan",
+  "selector_fingerprint": "77983ee9ec34ead2377da11edd27c69fc2d93f3d85845bcccf9dd4615c755445",
+  "compiled_plan_sha256": "dec88a05750a6b086a2cd5f24a50dc86bf872ec34d7767d5f6402bdcdcbdbcd7",
+  "instruction": "Repair only the selectors responsible for these compiler validation diagnostics; never patch the compiled plan."
+}

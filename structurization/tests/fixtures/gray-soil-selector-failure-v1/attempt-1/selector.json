@@ -1,0 +1,501 @@
+{
+  "schema_version": "target-selector-plan/v1",
+  "job_id": "selector-regression-2026-08-10T08-19-16-559Z-58a4088e-gb50209",
+  "target_id": "t-灰土垫层",
+  "evidence_fingerprint": "afcbb786865a8d1c4711c74b556cd5f103cfc7bf17d740b4412b234e80a1a918",
+  "span_registry_fingerprint": "9cb9d9ed15844494d307d512df18d7cfa400815e36040a85ce0e2a8680e1d28e",
+  "lots": [
+    {
+      "key": "lot-lime-soil-main",
+      "name": "灰土垫层主控项目",
+      "scope_span_ids": [
+        "span:2b417471dc8447c9c833a2954a0b49cf"
+      ],
+      "reason": "主控项目 category for 灰土垫层, covering volume ratio inspection item 4.3.6 which is the critical acceptance criterion"
+    },
+    {
+      "key": "lot-lime-soil-general",
+      "name": "灰土垫层一般项目",
+      "scope_span_ids": [
+        "span:78c15c2cdd6089ae64bb3faa5ef9368b"
+      ],
+      "reason": "一般项目 category for 灰土垫层, covering material particle inspection item 4.3.7 and surface deviation inspection item 4.3.8"
+    }
+  ],
+  "items": [
+    {
+      "key": "item-4-3-6-volume-ratio",
+      "lot_key": "lot-lime-soil-main",
+      "name": "灰土体积比",
+      "category": "主控项目",
+      "criterion_span_ids": [
+        "span:b0d17570c74547af1a0c1a191d3a5e3c"
+      ],
+      "continuation_span_ids": [
+        "span:03bf1cb992e410f2019f87fac3b6d50e"
+      ],
+      "fields": {
+        "name": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:b0d17570c74547af1a0c1a191d3a5e3c"
+          ],
+          "separator": "",
+          "reason": "Clause 4.3.6 name: 灰土体积比应符合设计要求"
+        },
+        "requirement": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:b0d17570c74547af1a0c1a191d3a5e3c"
+          ],
+          "separator": "",
+          "reason": "4.3.6 criterion: volume ratio must conform to design requirements"
+        },
+        "method": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:92a91caf502cd0917a03abae26e9e298"
+          ],
+          "separator": "",
+          "reason": "4.3.6 method: observation and review of mix proportion test report"
+        },
+        "quantity": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:92a91caf502cd0917a03abae26e9e298"
+          ],
+          "separator": "",
+          "reason": "4.3.6 quantity: one check per project per volume ratio"
+        },
+        "note": {
+          "composition": "not_applicable",
+          "span_ids": [],
+          "separator": "",
+          "reason": "No additional note for 4.3.6"
+        }
+      },
+      "table": null,
+      "inspection_data_type": "measurement",
+      "inspection_data_type_reason": "Volume ratio is a quantitative property verified against design-specified limits, requiring measurement-type inspection",
+      "inspection_data_type_span_ids": [
+        "span:b0d17570c74547af1a0c1a191d3a5e3c"
+      ],
+      "sampling": {
+        "status": "explicit",
+        "rule_key": "sampling-4-3-6",
+        "branch_key": "branch-4-3-6-main",
+        "reason": "4.3.6 specifies explicit sampling: 同一工程、同一体积比检查一次",
+        "confidence": 1
+      },
+      "reason": "主控项目 for 灰土垫层: volume ratio compliance must be verified against design requirements per GB 50209-2010 clause 4.3.6"
+    },
+    {
+      "key": "item-4-3-7-material-particles",
+      "lot_key": "lot-lime-soil-general",
+      "name": "材料粒径要求",
+      "category": "一般项目",
+      "criterion_span_ids": [
+        "span:042a5081efd8b76aa1ae9599adb8558d"
+      ],
+      "continuation_span_ids": [
+        "span:972da315bc57d45a5ac006977490eae8"
+      ],
+      "fields": {
+        "name": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:042a5081efd8b76aa1ae9599adb8558d"
+          ],
+          "separator": "",
+          "reason": "Clause 4.3.7 name covering material particle size requirements"
+        },
+        "requirement": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:042a5081efd8b76aa1ae9599adb8558d"
+          ],
+          "separator": "",
+          "reason": "4.3.7 criterion: hydrated lime particles ≤5mm, clay without organic matter and particles ≤16mm"
+        },
+        "method": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:879c1b5689e164120590eb20159bd4d8"
+          ],
+          "separator": "",
+          "reason": "4.3.7 method: observation and review of quality certification documents"
+        },
+        "quantity": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:879c1b5689e164120590eb20159bd4d8"
+          ],
+          "separator": "",
+          "reason": "4.3.7 quantity: per inspection batch as per clause 3.0.21"
+        },
+        "note": {
+          "composition": "not_applicable",
+          "span_ids": [],
+          "separator": "",
+          "reason": "No additional note for 4.3.7"
+        }
+      },
+      "table": null,
+      "inspection_data_type": "measurement",
+      "inspection_data_type_reason": "Material particle size limits are quantitative measurements verified through observation and document review",
+      "inspection_data_type_span_ids": [
+        "span:042a5081efd8b76aa1ae9599adb8558d"
+      ],
+      "sampling": {
+        "status": "reference",
+        "rule_key": "sampling-3-0-21",
+        "branch_key": "branch-3-0-21-all",
+        "reason": "4.3.7 references the general inspection batch sampling rule from clause 3.0.21",
+        "confidence": 0.95
+      },
+      "reason": "一般项目 for 灰土垫层: material particle size requirements per GB 50209-2010 clause 4.3.7"
+    },
+    {
+      "key": "item-4-3-8-surface-deviation",
+      "lot_key": "lot-lime-soil-general",
+      "name": "表面允许偏差",
+      "category": "一般项目",
+      "criterion_span_ids": [
+        "span:f8d092cf8f0ebb8b8828bda959604302"
+      ],
+      "continuation_span_ids": [
+        "span:4afed0b5e7073e47df00030c2665bfb5"
+      ],
+      "fields": {
+        "name": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:f8d092cf8f0ebb8b8828bda959604302"
+          ],
+          "separator": "",
+          "reason": "Clause 4.3.8 name: 灰土垫层表面允许偏差"
+        },
+        "requirement": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:f8d092cf8f0ebb8b8828bda959604302"
+          ],
+          "separator": "",
+          "reason": "4.3.8 criterion: surface deviations must conform to table 4.1.7"
+        },
+        "method": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:7db393e5629108ee3a52755b886d5031"
+          ],
+          "separator": "",
+          "reason": "4.3.8 method: per methods in table 4.1.7"
+        },
+        "quantity": {
+          "composition": "verbatim",
+          "span_ids": [
+            "span:7db393e5629108ee3a52755b886d5031"
+          ],
+          "separator": "",
+          "reason": "4.3.8 quantity: per inspection batch per clause 3.0.21 and acceptance per clause 3.0.22"
+        },
+        "note": {
+          "composition": "not_applicable",
+          "span_ids": [],
+          "separator": "",
+          "reason": "No additional note for 4.3.8"
+        }
+      },
+      "table": {
+        "source_kind": "direct",
+        "table_key": "table-4-1-7",
+        "properties": {
+          "table_no": [
+            "span:4cfb9bcc7257a2c240bc6252b4b6bfc0"
+          ],
+          "table_title": [
+            "span:4cfb9bcc7257a2c240bc6252b4b6bfc0"
+          ],
+          "applicability": [
+            "span:f8d092cf8f0ebb8b8828bda959604302"
+          ],
+          "row_path": [
+            [
+              "span:115d576ec78731b6a3b4413a16f11990"
+            ],
+            [
+              "span:a7fb3789e20d6202991efa52a5ebef59"
+            ],
+            [
+              "span:36e38cd9a92c0367f987d045012c9fc2"
+            ],
+            [
+              "span:eba14d67d27d7de9947e09477efe49ac"
+            ]
+          ],
+          "column_path": [
+            [
+              "span:4cfb9bcc7257a2c240bc6252b4b6bfc0"
+            ]
+          ],
+          "unit": [],
+          "condition": [
+            "span:4cfb9bcc7257a2c240bc6252b4b6bfc0"
+          ],
+          "allowed_value": [
+            "span:115d576ec78731b6a3b4413a16f11990",
+            "span:a7fb3789e20d6202991efa52a5ebef59"
+          ],
+          "inspection_method": [
+            "span:115d576ec78731b6a3b4413a16f11990",
+            "span:a7fb3789e20d6202991efa52a5ebef59"
+          ]
+        },
+        "reference_span_ids": [
+          "span:4cfb9bcc7257a2c240bc6252b4b6bfc0"
+        ],
+        "reason": "Table 4.1.7 defines allowed surface deviations for lime-soil cushion group including surface flatness and elevation"
+      },
+      "inspection_data_type": "measurement",
+      "inspection_data_type_reason": "Surface deviation checks measure flatness and elevation against specified allowable limits using measuring tools",
+      "inspection_data_type_span_ids": [
+        "span:f8d092cf8f0ebb8b8828bda959604302"
+      ],
+      "sampling": {
+        "status": "reference",
+        "rule_key": "sampling-3-0-21",
+        "branch_key": "branch-3-0-21-all",
+        "reason": "4.3.8 references inspection batch sampling from clause 3.0.21 and acceptance criteria from clause 3.0.22",
+        "confidence": 0.95
+      },
+      "reason": "一般项目 for 灰土垫层: surface deviation requirements per GB 50209-2010 clause 4.3.8 referencing table 4.1.7"
+    }
+  ],
+  "sampling_rules": [
+    {
+      "key": "sampling-3-0-21",
+      "complete_span_ids": [
+        "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+      ],
+      "branches": [
+        {
+          "key": "branch-3-0-21-all",
+          "applies_to_category": "all_items",
+          "minimum_span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "script_span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "condition_span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "reason": "Clause 3.0.21 defines inspection batch division by layer/segment and random inspection of at least 3 natural rooms per batch for all item categories"
+        }
+      ],
+      "shared_conditions": [
+        {
+          "key": "cond-batch-division",
+          "span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "reason": "Inspection batches divided by each layer or construction segment, at least 3 natural rooms per batch, all rooms if fewer than 3"
+        }
+      ],
+      "reason": "General inspection batch sampling rule from clause 3.0.21 applying to all item categories in building ground construction"
+    },
+    {
+      "key": "sampling-3-0-22",
+      "complete_span_ids": [
+        "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+      ],
+      "branches": [
+        {
+          "key": "branch-3-0-22-main",
+          "applies_to_category": "主控项目",
+          "minimum_span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "script_span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "condition_span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "reason": "Main control items must fully meet quality standards as specified in clause 3.0.22"
+        },
+        {
+          "key": "branch-3-0-22-general",
+          "applies_to_category": "一般项目",
+          "minimum_span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "script_span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "condition_span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "reason": "General items require 80% or more of check points to comply with quality standards as specified in clause 3.0.22"
+        }
+      ],
+      "shared_conditions": [
+        {
+          "key": "cond-acceptance-criteria",
+          "span_ids": [
+            "span:7a1fee2ab8cf168e5acc72c9d7cff125"
+          ],
+          "reason": "Acceptance criteria: main items must meet standards, general items need 80%+ compliance with no obvious adverse impact"
+        }
+      ],
+      "reason": "Acceptance criteria rule from clause 3.0.22 for main and general item categories"
+    },
+    {
+      "key": "sampling-4-3-6",
+      "complete_span_ids": [
+        "span:c5250ae2cea425256be793925ab15557"
+      ],
+      "branches": [
+        {
+          "key": "branch-4-3-6-main",
+          "applies_to_category": "主控项目",
+          "minimum_span_ids": [
+            "span:c5250ae2cea425256be793925ab15557"
+          ],
+          "script_span_ids": [
+            "span:c5250ae2cea425256be793925ab15557"
+          ],
+          "condition_span_ids": [
+            "span:c5250ae2cea425256be793925ab15557"
+          ],
+          "reason": "Clause 4.3.6 explicitly specifies one check per engineering project per volume ratio: 同一工程、同一体积比检查一次"
+        }
+      ],
+      "shared_conditions": [],
+      "reason": "Explicit sampling rule for volume ratio inspection in clause 4.3.6"
+    }
+  ],
+  "references": [
+    {
+      "key": "ref-table-4-1-7",
+      "anchor_span_ids": [
+        "span:f8d092cf8f0ebb8b8828bda959604302"
+      ],
+      "target_span_ids": [
+        "span:115d576ec78731b6a3b4413a16f11990",
+        "span:a7fb3789e20d6202991efa52a5ebef59",
+        "span:36e38cd9a92c0367f987d045012c9fc2",
+        "span:eba14d67d27d7de9947e09477efe49ac"
+      ],
+      "action": "adopt",
+      "application_mode": "reference_only",
+      "destinations": [],
+      "reason": "Item 4.3.8 references table 4.1.7 which defines allowed surface deviation values and inspection methods for lime-soil cushion"
+    },
+    {
+      "key": "ref-gb-50037",
+      "anchor_span_ids": [
+        "span:6727f37dc09ec61e4440d7b66927e1c6"
+      ],
+      "target_span_ids": [
+        "span:6727f37dc09ec61e4440d7b66927e1c6"
+      ],
+      "action": "keep_reference",
+      "application_mode": "reference_only",
+      "destinations": [
+        {
+          "item_key": "item-4-3-6-volume-ratio",
+          "target_field": "note"
+        }
+      ],
+      "reason": "GB 50037 is referenced in 条文说明 for minimum thickness consistency; external standard not in evidence set"
+    },
+    {
+      "key": "ref-cjj-4",
+      "anchor_span_ids": [
+        "span:a5b834b242973a81173bf0cf9260d916"
+      ],
+      "target_span_ids": [
+        "span:a5b834b242973a81173bf0cf9260d916"
+      ],
+      "action": "keep_reference",
+      "application_mode": "reference_only",
+      "destinations": [
+        {
+          "item_key": "item-4-3-7-material-particles",
+          "target_field": "note"
+        }
+      ],
+      "reason": "CJJ 4 is referenced in 条文说明 for material substitution testing; external standard not in evidence set"
+    }
+  ],
+  "source_dispositions": [
+    {
+      "span_ids": [
+        "span:024fc9e68c8f47bed21859c7df049764"
+      ],
+      "disposition": "context",
+      "reason": "Section 4.3 header and construction requirements 4.3.1-4.3.5 provide construction context for inspection items"
+    },
+    {
+      "span_ids": [
+        "span:41e1ca043d77af0bedceea894259b1af",
+        "span:a78811ee30405ecb28708bf7d67c1cc4",
+        "span:fc16a74bc371076971a2a3025ca93d02",
+        "span:48b82dcf212d3635a16ffb9e092bfe79",
+        "span:c6b41b619dec9c4d6dee07721abccf1d"
+      ],
+      "disposition": "context",
+      "reason": "Individual construction requirement clauses 4.3.1-4.3.5 provide construction method and material context for the 灰土垫层 work item"
+    },
+    {
+      "span_ids": [
+        "span:a88659f97a7d5d1a0a51af0f0a9a9468"
+      ],
+      "disposition": "context",
+      "reason": "Clause 4.1.7 defines general base layer surface deviation acceptance requirements referenced by item 4.3.8"
+    },
+    {
+      "span_ids": [
+        "span:ce5677bd25b69e17f1ddba4ff1d179c9"
+      ],
+      "disposition": "context",
+      "reason": "条文说明 for construction requirements 4.3.1-4.3.5 provide explanatory context"
+    },
+    {
+      "span_ids": [
+        "span:bb4173a3c88ad61634efe235f99e43cb"
+      ],
+      "disposition": "context",
+      "reason": "条文说明 for inspection items 4.3.6-4.3.8 provide explanatory context"
+    },
+    {
+      "span_ids": [
+        "span:7f38dcdee9d016a9f0dcc2d380fb5ec2"
+      ],
+      "disposition": "context",
+      "reason": "条文说明 4.3.6 explains default 3:7 volume ratio when design has no requirement"
+    },
+    {
+      "span_ids": [
+        "span:52aa7b4f707108c0c6cab36e1118a366"
+      ],
+      "disposition": "context",
+      "reason": "Table 3.0.1 defines the division of building ground sub-project and item types, providing context that 灰土垫层 is a base layer sub-item"
+    },
+    {
+      "span_ids": [
+        "span:6727f37dc09ec61e4440d7b66927e1c6"
+      ],
+      "disposition": "context",
+      "reason": "条文说明 4.3.1 references GB 50037 for minimum thickness consistency"
+    },
+    {
+      "span_ids": [
+        "span:a5b834b242973a81173bf0cf9260d916"
+      ],
+      "disposition": "context",
+      "reason": "条文说明 4.3.2 references CJJ 4 for material substitution testing requirements"
+    }
+  ]
+}

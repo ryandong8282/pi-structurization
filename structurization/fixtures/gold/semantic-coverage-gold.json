@@ -1,0 +1,315 @@
+{
+  "schema_version": "semantic-coverage-gold/v1",
+  "cases": [
+    {
+      "id": "gb50576-5.2.5-human-review",
+      "standard": "GB 50576-2010",
+      "variant": "original-markdown",
+      "equivalence_group": "gb50576-5.2.5",
+      "source_text": "5.2.5 角焊缝的焊角高度应等于或大于两焊件中较薄焊件母材厚度的70%，且不应小于3mm。T形接头、十字接头、角接接头等要求熔透的对接和角对接组合焊缝，其焊脚尺寸不应小于板厚度的1/4(图5.2.5)。检查数量:资料全数检查;同类焊缝抽查 10%,且不应少于 3 条。检验方法: 观察检查, 用焊缝量规抽查测量。",
+      "dispositions": [
+        {
+          "judgment_id": "fillet-weld-leg-height",
+          "disposition": "acceptance_item",
+          "exact_fragment": "角焊缝的焊角高度应等于或大于两焊件中较薄焊件母材厚度的70%，且不应小于3mm"
+        },
+        {
+          "judgment_id": "penetration-combination-weld-leg-size",
+          "disposition": "acceptance_item",
+          "exact_fragment": "T形接头、十字接头、角接接头等要求熔透的对接和角对接组合焊缝，其焊脚尺寸不应小于板厚度的1/4(图5.2.5)"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "检查数量:资料全数检查;同类焊缝抽查 10%,且不应少于 3 条",
+          "qualifier_field": "quantity",
+          "applies_to_judgments": [
+            "fillet-weld-leg-height",
+            "penetration-combination-weld-leg-size"
+          ]
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "检验方法: 观察检查, 用焊缝量规抽查测量",
+          "qualifier_field": "method",
+          "applies_to_judgments": [
+            "fillet-weld-leg-height",
+            "penetration-combination-weld-leg-size"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gb50576-10.3.3-human-review",
+      "standard": "GB 50576-2010",
+      "variant": "original-markdown",
+      "equivalence_group": "gb50576-10.3.3",
+      "source_text": "10.3.3 设计要求顶紧的节点，接触面不应少于 75% 紧贴，且边缘最大间隙不应大于 0.8mm。检查数量: 按节点数抽查 10%, 且不应小于 3 个。检验方法:用钢尺及 0.3mm 和 0.8mm 厚的塞尺现场实测。",
+      "dispositions": [
+        {
+          "judgment_id": "contact-area",
+          "disposition": "acceptance_item",
+          "exact_fragment": "接触面不应少于 75% 紧贴"
+        },
+        {
+          "judgment_id": "edge-gap",
+          "disposition": "acceptance_item",
+          "exact_fragment": "边缘最大间隙不应大于 0.8mm"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "设计要求顶紧的节点"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "检查数量: 按节点数抽查 10%, 且不应小于 3 个",
+          "qualifier_field": "quantity",
+          "applies_to_judgments": [
+            "contact-area",
+            "edge-gap"
+          ]
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "检验方法:用钢尺及 0.3mm 和 0.8mm 厚的塞尺现场实测",
+          "qualifier_field": "method",
+          "applies_to_judgments": [
+            "contact-area",
+            "edge-gap"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gb50576-10.3.3-ocr-line-break",
+      "standard": "GB 50576-2010",
+      "variant": "ocr-line-break-and-fullwidth",
+      "equivalence_group": "gb50576-10.3.3",
+      "source_text": "设计要求顶紧的节点接触面不应少于\n75％紧贴且边缘最大间隙\n不应大于0．8 mm",
+      "dispositions": [
+        {
+          "judgment_id": "contact-area",
+          "disposition": "acceptance_item",
+          "exact_fragment": "接触面不应少于\n75％紧贴"
+        },
+        {
+          "judgment_id": "edge-gap",
+          "disposition": "acceptance_item",
+          "exact_fragment": "边缘最大间隙\n不应大于0．8 mm"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "设计要求顶紧的节点"
+        }
+      ]
+    },
+    {
+      "id": "gb50576-10.3.3-table-shape",
+      "standard": "GB 50576-2010",
+      "variant": "table-serialized-without-fixed-columns",
+      "equivalence_group": "gb50576-10.3.3",
+      "source_text": "<table><tr><td>设计要求顶紧的节点</td><td>接触面</td><td>不应少于75%紧贴</td></tr><tr><td>边缘最大间隙</td><td>不应大于0.8mm</td></tr></table>",
+      "dispositions": [
+        {
+          "judgment_id": "contact-area",
+          "disposition": "acceptance_item",
+          "exact_fragment": "接触面</td><td>不应少于75%紧贴"
+        },
+        {
+          "judgment_id": "edge-gap",
+          "disposition": "acceptance_item",
+          "exact_fragment": "边缘最大间隙</td><td>不应大于0.8mm"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "设计要求顶紧的节点"
+        }
+      ]
+    },
+    {
+      "id": "gb50310-4.2.3-negative-exception",
+      "standard": "GB 50310-2002",
+      "variant": "nested-numbered-item",
+      "equivalence_group": "gb50310-4.2.3",
+      "source_text": "3 当相邻两层门地坎间的距离大于 11m 时，其间必须设置井道安全门，井道安全门严禁向井道内开启，且必须装有安全门处于关闭时电梯才能运行的电气安全装置。当相邻轿厢间有相互救援用轿厢安全门时，可不执行本款。",
+      "dispositions": [
+        {
+          "judgment_id": "safety-door-required",
+          "disposition": "acceptance_item",
+          "exact_fragment": "当相邻两层门地坎间的距离大于 11m 时，其间必须设置井道安全门"
+        },
+        {
+          "judgment_id": "safety-door-opening-direction",
+          "disposition": "acceptance_item",
+          "exact_fragment": "井道安全门严禁向井道内开启"
+        },
+        {
+          "judgment_id": "safety-door-electrical-interlock",
+          "disposition": "acceptance_item",
+          "exact_fragment": "必须装有安全门处于关闭时电梯才能运行的电气安全装置"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "当相邻轿厢间有相互救援用轿厢安全门时，可不执行本款"
+        }
+      ]
+    },
+    {
+      "id": "gb50202-5.5.4-multi-quality-dimensions",
+      "standard": "GB 50202-2018",
+      "variant": "formal-row-cell-content",
+      "equivalence_group": "gb50202-5.5.4-product-pile-quality",
+      "source_text": "成品桩质量：表面平整，颜色均匀，掉角深度小于10mm，蜂窝面积小于总面积的0.5%；检查方法：查产品合格证。",
+      "dispositions": [
+        {
+          "judgment_id": "surface-flatness",
+          "disposition": "acceptance_item",
+          "exact_fragment": "表面平整"
+        },
+        {
+          "judgment_id": "color-uniformity",
+          "disposition": "acceptance_item",
+          "exact_fragment": "颜色均匀"
+        },
+        {
+          "judgment_id": "corner-damage-depth",
+          "disposition": "acceptance_item",
+          "exact_fragment": "掉角深度小于10mm"
+        },
+        {
+          "judgment_id": "honeycomb-area",
+          "disposition": "acceptance_item",
+          "exact_fragment": "蜂窝面积小于总面积的0.5%"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "检查方法：查产品合格证"
+        }
+      ]
+    },
+    {
+      "id": "gb50310-4.11.9-one-measurement-two-bounds",
+      "standard": "GB 50310-2002",
+      "variant": "positive-no-oversplit",
+      "equivalence_group": "gb50310-4.11.9-speed-band",
+      "source_text": "当电源为额定频率和额定电压、轿厢载有 50%额定载荷时，向下运行至行程中段(除去加速加减速段)时的速度，不应大于额定速度的 105%，且不应小于额定速度的 92%。",
+      "dispositions": [
+        {
+          "judgment_id": "running-speed-band",
+          "disposition": "acceptance_item",
+          "exact_fragment": "不应大于额定速度的 105%"
+        },
+        {
+          "judgment_id": "running-speed-band",
+          "disposition": "acceptance_item",
+          "exact_fragment": "不应小于额定速度的 92%"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "当电源为额定频率和额定电压、轿厢载有 50%额定载荷时，向下运行至行程中段(除去加速加减速段)时的速度"
+        }
+      ]
+    },
+    {
+      "id": "gb50202-5.10.4-cross-table-reference",
+      "standard": "GB 50202-2018",
+      "variant": "cross-table-reference-with-continuation",
+      "equivalence_group": "gb50202-5.10.4-reference",
+      "source_text": "5.10.4 钢桩施工质量检验标准应符合本标准表 5.1.2、表 5.10.4 的规定。表 5.10.4：钢桩外径或断面尺寸，桩端≤0.5%D，桩身≤0.1%D。续表 5.10.4：咬边深度≤0.5mm，加强层高度≤2mm，加强层宽度≤3mm。",
+      "dispositions": [
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "应符合本标准表 5.1.2、表 5.10.4 的规定"
+        },
+        {
+          "judgment_id": "pile-end-section-size",
+          "disposition": "acceptance_item",
+          "exact_fragment": "桩端≤0.5%D"
+        },
+        {
+          "judgment_id": "pile-body-section-size",
+          "disposition": "acceptance_item",
+          "exact_fragment": "桩身≤0.1%D"
+        },
+        {
+          "judgment_id": "weld-undercut-depth",
+          "disposition": "acceptance_item",
+          "exact_fragment": "咬边深度≤0.5mm"
+        },
+        {
+          "judgment_id": "weld-reinforcement-height",
+          "disposition": "acceptance_item",
+          "exact_fragment": "加强层高度≤2mm"
+        },
+        {
+          "judgment_id": "weld-reinforcement-width",
+          "disposition": "acceptance_item",
+          "exact_fragment": "加强层宽度≤3mm"
+        }
+      ]
+    },
+    {
+      "id": "gb50202-9.5.2-process-versus-acceptance",
+      "standard": "GB 50202-2018",
+      "variant": "negative-process-instructions",
+      "equivalence_group": "gb50202-9.5.2",
+      "source_text": "施工中应检查排水系统，每层填筑厚度、辗迹重叠程度、含水量控制、回填土有机质含量、压实系数等。回填施工的压实系数应满足设计要求。当采用分层回填时，应在下层的压实系数经试验合格后进行上层施工。填筑厚度及压实遍数应根据土质、压实系数及压实机具确定。",
+      "dispositions": [
+        {
+          "judgment_id": "backfill-compaction-coefficient",
+          "disposition": "acceptance_item",
+          "exact_fragment": "回填施工的压实系数应满足设计要求"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "施工中应检查排水系统，每层填筑厚度、辗迹重叠程度、含水量控制、回填土有机质含量、压实系数等"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "irrelevant",
+          "exact_fragment": "应在下层的压实系数经试验合格后进行上层施工"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "irrelevant",
+          "exact_fragment": "填筑厚度及压实遍数应根据土质、压实系数及压实机具确定"
+        }
+      ]
+    },
+    {
+      "id": "gb50202-5.1.6-conditional-sampling",
+      "standard": "GB 50202-2018",
+      "variant": "branching-sampling-context",
+      "equivalence_group": "gb50202-5.1.6",
+      "source_text": "设计等级为甲级或地质条件复杂时，应采用静载试验的方法对桩基承载力进行检验，检验桩数不应少于总桩数的 1%，且不应少于 3 根，当总桩数少于 50 根时，不应少于 2 根。在有经验和对比资料的地区，设计等级为乙级、丙级的桩基可采用高应变法对桩基进行竖向抗压承载力检测，检测数量不应少于总桩数的 5%，且不应少于 10 根。",
+      "dispositions": [
+        {
+          "judgment_id": "pile-bearing-capacity",
+          "disposition": "acceptance_item",
+          "exact_fragment": "对桩基承载力进行检验"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "检验桩数不应少于总桩数的 1%，且不应少于 3 根，当总桩数少于 50 根时，不应少于 2 根"
+        },
+        {
+          "judgment_id": "",
+          "disposition": "shared_context",
+          "exact_fragment": "检测数量不应少于总桩数的 5%，且不应少于 10 根"
+        }
+      ]
+    }
+  ]
+}

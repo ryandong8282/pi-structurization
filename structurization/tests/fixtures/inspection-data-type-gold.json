@@ -1,0 +1,16 @@
+[
+  {"id":"foundation-size","domain":"地基基础","criterion":"轴线位置允许偏差应符合设计和验收表规定。","method":"用钢尺实测。","expected":"measurement","reason":"钢尺产生位置尺寸测量值；单个测点与允许偏差比较；最终按各测点偏差评价。","variants":["轴线 位 置\n允许偏差应符合设计和验收表规定；用钢尺实测。","用钢尺实测轴线位置，结果与设计允许偏差比较。"]},
+  {"id":"roof-thickness","domain":"屋面","criterion":"防水层实际厚度应满足设计要求。","method":"取样后测量。","expected":"measurement","reason":"取样测量产生厚度值；单个试样与设计厚度比较；最终按试样测量结果评价。","variants":["防水层实际厚度应满足设计要求（取样后测量）"]},
+  {"id":"survey-elevation","domain":"测量","criterion":"构件安装标高应符合设计控制值。","method":"水准仪测量。","expected":"measurement","reason":"水准仪产生标高测量值；单个测点与设计控制值比较；最终按测点偏差评价。","variants":["构件安装标高应符合设计控制值；水准仪\n测量。"]},
+  {"id":"concrete-strength","domain":"混凝土结构","criterion":"试件强度达到设计等级后方可验收。","method":"试验机检测。","expected":"measurement","reason":"试验机产生强度测量值；单组试件与设计等级对应限值比较；最终按试验结果评价。","variants":["试件强度达到设计等级后方可验收，采用试验机检测。"]},
+  {"id":"material-content","domain":"建筑材料","criterion":"材料组分含量按规定方法测定并与技术指标比较。","method":"试验测定。","expected":"measurement","reason":"试验产生含量或比例测量值；单个试样与技术指标比较；最终按试样测定结果评价。","variants":["材料组分含量按规定方法测定\n并与技术指标比较。"]},
+  {"id":"unnumbered-measurement","domain":"钢结构","criterion":"校核构件挠度是否满足设计控制要求。","method":"仪器实测挠度。","expected":"measurement","reason":"仪器产生挠度测量值；单个构件的实测值与设计控制要求比较；最终按构件测量结果评价。","variants":["校核构件挠度是否满足设计控制要求（仪器实测）。"]},
+  {"id":"crack-defect","domain":"砌体结构","criterion":"墙面不得有贯通裂纹。","method":"观察检查。","expected":"counting","reason":"观察形成裂纹存在或不存在的属性结果；逐个检查单位判定符合或不符合；最终按缺陷单位数量评价。","variants":["墙 面 不 得 有 贯 通 裂 纹；观察检查。"]},
+  {"id":"hollow-loose-leak","domain":"装饰装修","criterion":"饰面不得空鼓、松动或渗漏。","method":"观察、敲击和淋水检查。","expected":"counting","reason":"检查形成缺陷存在或不存在的属性结果；逐个检查单位作符合性判定；最终按不合格单位数或比例评价。","variants":["饰面不得空鼓\n松动或渗漏；观察、敲击和淋水检查。"]},
+  {"id":"appearance-defects","domain":"钢结构","criterion":"焊缝表面不多于3处缺陷。","method":"观察检查。","expected":"counting","reason":"结果是缺陷处的存在和计数，不是连续尺寸测量；逐条焊缝按缺陷数判定；最终按不合格焊缝数量评价。","variants":["焊缝表面缺陷≤3处；观察检查。","观察焊缝表面，每条允许的缺陷处数不得超过三。"]},
+  {"id":"records-complete","domain":"工程资料","criterion":"质量证明文件和验收记录应齐全、有效。","method":"核查资料。","expected":"counting","reason":"核查形成每份资料齐全有效或不符合的属性结果；逐份判定；最终按缺失或不合格资料数量评价。","variants":["核查质量证明文件、验收记录是否齐全有效。"]},
+  {"id":"inseparable-mixed","domain":"设备安装","criterion":"支座位移量应在设计范围内且各支座不得松动。","method":"测量位移并逐个观察检查。","expected":"mixed","reason":"同一支座检查同时产生位移测量值和松动属性结果；分别与设计范围及不得松动要求判定；当前完整项目不可再拆时综合两类结果评价。","variants":["支座位移量应在设计范围内；同时各支座不得松动。测量并观察。"]},
+  {"id":"referenced-table","domain":"给排水","criterion":"坡度应符合表A的限值。","method":"水平尺和量尺检查。","context":"表A给出不同管径对应的设计坡度限值。","expected":"measurement","reason":"量测产生坡度值；单段管道与引用表中的适用限值比较；最终按各段实测结果评价。","variants":["坡度应符合表 A。水平尺、量尺检查。\n表 A：不同管径采用相应设计坡度限值。"]},
+  {"id":"method-conflict","domain":"通风空调","criterion":"风管表面应平整，不得有明显凹陷。","method":"仪器测量厚度。","expected":"review","reason":"正文描述外观属性判定而检查方法却指向厚度测量，检验数据和单元判定方式相互冲突；需核对原表列或上下文后复核。","variants":["风管表面应平整不得有明显凹陷｜检查：仪器测量厚度"]},
+  {"id":"insufficient","domain":"建筑电气","criterion":"应符合相关规定。","method":"按规定检查。","expected":"review","reason":"未给出被检特性、实际检查结果形态或引用规定内容，无法说明单元判定和最终评价方式，需补充上下文。","variants":["应符合相关规定\n检查方法：按规定检查"]}
+]

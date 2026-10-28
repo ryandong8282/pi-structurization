@@ -1,0 +1,73 @@
+import { readFile } from 'node:fs/promises';
+import { expect, test } from 'vitest';
+import { Check } from 'typebox/value';
+import { createPiTools } from '../src/tools.js';
+import { initialTargetSelectorPlan } from '../src/target-selector-compiler.js';
+import { buildSelectorStageScenario, clauseRecord, currentFingerprint, enterCommitStage, fullSpanFor, itemRecord } from './selector-stage-fixture.js';
+
+const markdown = ['# 2 设备验收', '', '## 2.1 接头验收', '',
+  '2.1.1 接头验收分项：', '', '1 接头应牢固。', '',
+  '检验方法：观察检查。', '', '检查数量：全数检查。', '',
+  '2.1.2 标识应清晰。', '', '检验方法：观察检查。', '', '检查数量：全数检查。', ''].join('\n');
+
+test('unhandled source feedback exposes the existing lot scope route without selecting a disposition or retiring unrelated obligations', async () => {
+  const { controller, workspace, manifest } = await buildSelectorStageScenario(markdown);
+  const group = clauseRecord(manifest, '2.1.1');
+  const leaf = manifest.evidence.find(e => e.text === '1 接头应牢固。')!;
+  const other = clauseRecord(manifest, '2.1.2');
+  expect(leaf).toBeDefined();
+  const registry = await workspace.readSourceSpanRegistry();
+  const groupSpan = fullSpanFor(registry, group.evidence_id, group.text.length);
+  const leafSpan = fullSpanFor(registry, leaf.evidence_id, leaf.text.length);
+  const method = manifest.evidence.find(e => e.clause_id === '2.1.1' && e.text.startsWith('检验方法'))!;
+  const quantity = manifest.evidence.find(e => e.clause_id === '2.1.1' && e.text.startsWith('检查数量'))!;
+  const methodSpan = fullSpanFor(registry, method.evidence_id, method.text.length);
+  const quantitySpan = fullSpanFor(registry, quantity.evidence_id, quantity.text.length);
+  expect((await controller.dispatch('batch_open_evidence', { evidence_ids: manifest.evidence.map(e => e.evidence_id) })).ok).toBe(true);
+  const draft = initialTargetSelectorPlan(manifest);
+  draft.lots = [{ key: 'lot:2.1', name: '接头验收', scope_span_ids: [], reason: '合成原文中的接头验收范围。' }];
+  draft.items = [itemRecord('joint', '接头牢固性', '主控项目', leafSpan, '合成原文明确规定接头牢固性。')];
+  draft.items[0]!.fields.method = { composition: 'verbatim', span_ids: [methodSpan], separator: '', reason: '本项原文方法。' };
+  draft.items[0]!.fields.quantity = { composition: 'verbatim', span_ids: [quantitySpan], separator: '', reason: '本项原文数量。' };
+  draft.items[0]!.sampling = { ...draft.items[0]!.sampling, status: 'explicit', quantity_span_ids: [quantitySpan], script_span_ids: [quantitySpan], reason: '原文规定全数检查。' };
+  const staged = await controller.dispatch('stage_target_selector_draft', { operation: 'upsert', draft: { lots: draft.lots, items: draft.items } });
+  expect(staged.ok, JSON.stringify(staged)).toBe(true);
+  await enterCommitStage(workspace);
+  const before = await controller.dispatch('commit_target_selector_draft', { draft_fingerprint: await currentFingerprint(controller) }) as any;
+  const findIssue = (reply: any, id: string) => reply.selector_issues?.find((i: any) => (i.actual?.evidence_ids ?? i.details?.evidence_ids ?? []).includes(id));
+  const issue = findIssue(before, group.evidence_id);
+  expect(issue, JSON.stringify({ keys: Object.keys(before), error: before.error, stage: before.stage, instruction: before.instruction, issues: before.selector_issues?.map((i: any) => ({ code: i.code, path: i.path, actual: i.actual, details: i.details })) })).toBeDefined();
+  expect(findIssue(before, other.evidence_id)).toBeDefined();
+  const authorityBefore = await workspace.readState();
+  const registryBefore = await workspace.readSourceSpanRegistry();
+  const manifestBefore = await readFile(workspace.evidenceManifestPath, 'utf8');
+  const readArgs = { collection: 'lots', key: 'lot:2.1' };
+  const readTool = createPiTools(controller).find(t => t.name === 'read_target_selectors')!;
+  expect(Check(readTool.parameters, readArgs)).toBe(true);
+  const read = await controller.dispatch('read_target_selectors', readArgs) as any;
+  expect(read.ok).toBe(true);
+  const lot = { ...read.rows[0], scope_span_ids: [groupSpan] };
+  const saved = await controller.dispatch('stage_target_selector_draft', { operation: 'upsert', draft: { lots: [lot] } });
+  expect(saved.ok).toBe(true);
+  const after = await controller.dispatch('commit_target_selector_draft', { draft_fingerprint: await currentFingerprint(controller) }) as any;
+  expect(after.ok).toBe(false);
+  expect(findIssue(after, group.evidence_id)).toBeUndefined();
+  expect(findIssue(after, other.evidence_id)).toBeDefined();
+  const authorityAfter = await workspace.readState();
+  expect(authorityAfter.selector_protocol?.submissions).toBe(authorityBefore.selector_protocol?.submissions);
+  expect(authorityAfter.validation_attempts).toBe(authorityBefore.validation_attempts);
+  expect(authorityAfter.last_valid_fingerprint).toBe('');
+  expect(await workspace.readSourceSpanRegistry()).toEqual(registryBefore);
+  expect(await readFile(workspace.evidenceManifestPath, 'utf8')).toBe(manifestBefore);
+  const selectors = JSON.parse(await readFile(workspace.workingSelectorPath, 'utf8'));
+  expect(selectors.items).toEqual(draft.items);
+  expect(selectors.source_dispositions).toEqual([]);
+  expect(issue.writable_paths).toContain('/lots');
+  expect(issue.writable_collections).toContain('lots');
+  const directoryArgs = issue.tool_argument_hints.read_target_selectors.find((args: any) => args.collection === 'lots');
+  expect(Check(readTool.parameters, directoryArgs)).toBe(true);
+  expect((await controller.dispatch('read_target_selectors', directoryArgs)).ok).toBe(true);
+  expect(issue.how_to_pass).toContain('scope_span_ids');
+  expect(issue.details.binding_requirement).toContain('不能替代');
+  expect(issue.details.binding_requirement).toContain('scope_span_ids');
+});

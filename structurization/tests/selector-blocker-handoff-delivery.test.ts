@@ -1,0 +1,56 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { expect, test, vi } from 'vitest';
+import { Check } from 'typebox/value';
+import { prettyJson, sha256Text } from '../src/canonical.js';
+import { ToolController, createPiTools } from '../src/tools.js';
+import { buildSelectorStageScenario, clauseRecord, currentFingerprint, fullSpanFor, seedPlan } from './selector-stage-fixture.js';
+
+test('identical historical handoffs are referenced within a controller and fully recoverable without changing stop observations', async () => {
+  const { workspace, manifest } = await buildSelectorStageScenario();
+  const source = clauseRecord(manifest, '2.1.3'), registry = await workspace.readSourceSpanRegistry();
+  const plan = seedPlan(manifest, fullSpanFor(registry, source.evidence_id, source.text.length));
+  plan.items[0]!.sampling = { ...plan.items[0]!.sampling, status: 'pending', confidence: 0, reason: '尚未完成作者判断。' };
+  await workspace.writeWorkingSelectors(prettyJson(plan));
+  await workspace.updateState(s => { s.selector_stage = 'sampling'; });
+  const controller = await ToolController.create(workspace);
+  // Seed a completed historical check independently of author-work admission.
+  vi.spyOn(controller, 'selectorRepairWork').mockResolvedValue(undefined);
+  await controller.dispatch('advance_target_selector_stage', { next_stage: 'table' });
+  const probes = (await controller.selectorBlockingIssues())!;
+  await controller.recordSelectorBlockingProgress(probes, probes);
+  const args = { draft_fingerprint: await currentFingerprint(controller) };
+  const beforeState = await workspace.readState(), beforeRegistry = await workspace.readSourceSpanRegistry();
+  const beforeDraft = await readFile(workspace.workingSelectorPath, 'utf8');
+  const cachePath = join(workspace.root, 'selector-diagnostics.json');
+  const history = JSON.parse(await readFile(cachePath, 'utf8')).convergence;
+  const first = await controller.dispatch('read_target_selector_issues', args);
+  expect(first.selector_blocker_handoff).toBeTypeOf('string');
+  const second = await controller.dispatch('read_target_selector_issues', args);
+  expect(second).not.toHaveProperty('selector_blocker_handoff');
+  expect(second.selector_issues).toEqual(first.selector_issues);
+  expect(second.selector_issue_page).toEqual(first.selector_issue_page);
+  const ref = second.selector_blocker_handoff_ref as any;
+  expect(ref.sha256).toBe(sha256Text(first.selector_blocker_handoff as string));
+  expect(Buffer.byteLength(JSON.stringify(second))).toBeLessThan(Buffer.byteLength(JSON.stringify(first)));
+  const tool = createPiTools(controller).find(t => t.name === ref.full_read.tool)!;
+  expect(Check(tool.parameters, ref.full_read.arguments)).toBe(true);
+  const forced = await controller.dispatch(ref.full_read.tool, ref.full_read.arguments);
+  expect(forced.selector_blocker_handoff).toBe(first.selector_blocker_handoff);
+  const reconstructed = await ToolController.create(workspace);
+  expect((await reconstructed.dispatch('read_target_selector_issues', args)).selector_blocker_handoff)
+    .toBe(first.selector_blocker_handoff);
+  expect(JSON.parse(await readFile(cachePath, 'utf8')).convergence).toEqual(history);
+  expect(await workspace.readSourceSpanRegistry()).toEqual(beforeRegistry);
+  expect(await readFile(workspace.workingSelectorPath, 'utf8')).toBe(beforeDraft);
+  const after = await workspace.readState();
+  expect(after.opened_evidence_ids).toEqual(beforeState.opened_evidence_ids);
+  expect(after.selector_protocol).toEqual(beforeState.selector_protocol);
+  expect(after.validation_attempts).toBe(beforeState.validation_attempts);
+  await controller.recordSelectorBlockingProgress(probes, probes);
+  const changed = await controller.dispatch('read_target_selector_issues', args);
+  expect(changed.selector_blocker_handoff).toContain('"unchanged_rounds":2');
+  const third = await controller.recordSelectorBlockingProgress(probes, probes);
+  expect(third?.history.blockers[0]?.unchanged_rounds).toBe(3);
+  expect(third?.stalled).toHaveLength(1);
+});

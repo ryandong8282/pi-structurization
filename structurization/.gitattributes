@@ -1,0 +1,3 @@
+# Preserve source fixtures, including Markdown line breaks and EOF whitespace.
+fixtures/**/*.md -text -whitespace
+tests/fixtures/**/*.md -text -whitespace

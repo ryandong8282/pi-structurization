@@ -1,0 +1,38 @@
+name: Structurization package
+
+on:
+  push:
+    paths: ['structurization/**', '.github/workflows/structurization.yml']
+  pull_request:
+    paths: ['structurization/**', '.github/workflows/structurization.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: structurization
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: structurization/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm rebuild better-sqlite3
+      - run: npm run build
+      - run: npm run check
+      - run: npm run test:unit
+      - run: npm pack --ignore-scripts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi-structurization-${{ matrix.os }}
+          path: structurization/pi-structurization-*.tgz
