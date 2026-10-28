@@ -3,7 +3,7 @@
  * Existing schemas, controller state, tool registration, budgets and artifacts
  * remain authoritative. No model call, new phase or fallback is introduced.
  */
-export const PROMPT_SUITE_VERSION = 'acceptance-prompt-suite/2026-10-26.4';
+export const PROMPT_SUITE_VERSION = 'acceptance-prompt-suite/2026-10-28.2';
 
 export const MODEL_OUTPUT_LANGUAGE_GUIDANCE = `自然语言说明、理由、调查与交接用简体中文；业务名称沿用原文主语言。工具名、字段、枚举、ID、路径、错误码、公式、单位及精确原文保持原样。`;
 
@@ -46,18 +46,20 @@ export const SOURCE_CONTEXT_INVESTIGATION = `调查的工作单位是当前受�
 同一已读共同规则及其适用结论可复用，不按每个叶重复调查。调查收敛于：已确认直接范围已读，适用的上位/共同规定与表注已针对性核对，已发现明确引用已按有限引用政策处置，已发现相关候选均有有据决定或具体缺口。无需证明全文绝无未知规则；仍有具体未决就继续针对性调查或走既有 blocker。写入时核对本项；完整提交前从原文检查遗漏、从结果检查错项/错字段/条件/重复和无依据添加，不新开独立审核轮次。`;
 
 export const SOURCE_HANDLE_INSTRUCTION = `来源身份由程序分配，只复制当前公开工具回条中的编号，不自行编号、不截 hash、不由 fingerprint 推导 target_key。s=原文片段 span、e=证据 evidence、a=文档原子 atom、r=引用发生处 occurrence、t=引用目标 target_key、c=检查点；按参数含义选择对应身份，条号/表号是定位文字，不能替代 target_key。
-工具已返回短句柄时直接使用，并在调用顶层原样携带本会话 source_handle_scope；scope 不放入 draft。缺 scope 只补当前值；scope 不匹配时重新取得当前句柄，不给旧句柄换 scope。仅当工具实际返回 canonical ID 时也可原样使用；全用 canonical IDs 可省略 scope，不能按其格式猜造编号。历史 canonical IDs 通过当前工具重新映射。
+工具已返回短句柄时直接使用，例如读取 e31 时传 evidence_id="e31"。程序将工具会话绑定到当前目标，模型不传 source_handle_scope，也不把它放入 draft。编号只在当前工具会话有效，不从历史或其他目标搬用；未知或类型不符时按回条重新读取当前来源并核对身份。仅当工具实际返回 canonical ID 时也可原样使用，不能按其格式猜造编号。历史 canonical IDs 通过当前工具重新映射。
 $quote 是单次写入中的临时别名，定义与使用必须同次调用；使用 $requirement 等描述性名，不占用保留的 $s1/$e1/$a1/$r1/$t1/$c1 及大小写变体。`;
 
 export const SOURCE_ACCESS_PROTOCOL = `来源读取顺序
+primary_source_ranges界定本target的直接正文，不是全部可用依据的白名单。已登记并解析的引用正文可依实际访问政策和字段接收合同用于本target，不必把外章改成primary，也不因其在primary之外就报告冻结范围冲突。已解析只证明来源身份和读取入口，业务适用性、条件、例外及实际接收仍由你判断；未登记的调查候选仍须先登记来源。
 检索先看 search_scope：search_evidence/batch_search_evidence 仅查已登记目标证据，search_global_document_resources 查可直接调查的全文；都不搜索隔离引用正文。三者均用空格分隔备选词、任一词命中排序，完整短语和多词命中优先。命中按逐项读取路由选读；局部未命中按顶层 next_tool/next_tool_arguments 查全文，全文未命中按返回目录入口浏览或换原文措辞。空结果只说明本范围本查询未命中，不表示共同规定不存在或允许 fallback。
+同条目录是可选导航：context_directory明确其可用性和原因；只有直接主资料中已登记唯一clause_id时，才按context_for_evidence_id列同条元数据。其他章节、混合多条的全局正文与未知编号不是同一情况；目录不可用不表示来源无效或无适用内容。需要正文按source_access的精确路由读取；已有正文可直接用locate_evidence_span定位你自己选定的精确片段，不必先取得同条目录或重读。全文atom仍须遵循既有登记流程，隔离引用仍走专用入口，不凭条号外观或邻接文字猜业务归属。
 target_key 标识被引目标，occurrence_id 标识本地引用发生处。相同目标的阅读可复用；不同来源位置的引用仍各自登记 occurrence，不能因目标相同省略新发生处。
 先确定当前对象的读取入口，正常路径按以下顺序选择：
 1. 当前回条已给出匹配对象的 read_tool 和 tool_arguments：直接复制调用。读取已登记目标不需要重复登记，也不需要把短句柄换成长 ID。
-2. 知道原引用但缺少匹配目标的 target_key，或不确定当前发生处是否已登记：调用当前角色的引用目录：selector 用 list_reference_occurrences，coverage 用 list_coverage_reference_targets；按原引用、来源位置、origin_fields 和 target_locator 匹配同一发生处。目录若已给 read_tool/tool_arguments 就复制调用；否则对 status=resolved 且有实际来源的行，analysis_mode=inline 时用 read_document_reference_evidence，isolated 时用 read_reference_facts，传该行实际 target_key，使用短句柄时同时携带当前 scope；有编号但未解析成功不代表正文可读。目录未列完按 next_cursor 续页，不能把当前页未命中当成未登记。
+2. 知道原引用但缺少匹配目标的 target_key，或不确定当前发生处是否已登记：调用当前角色的引用目录：selector 用 list_reference_occurrences，coverage 用 list_coverage_reference_targets；按原引用、来源位置、origin_fields 和 target_locator 匹配同一发生处。目录若已给 read_tool/tool_arguments 就复制调用；否则对 status=resolved 且有实际来源的行，analysis_mode=inline 时用 read_document_reference_evidence，isolated 时用 read_reference_facts，传该行实际 target_key；短句柄所属目标由程序绑定；有编号但未解析成功不代表正文可读。目录未列完按 next_cursor 续页，不能把当前页未命中当成未登记。
 3. 原文出现尚未登记的明确内部引用发生处：按 references 协议调用 resolve_document_reference，得到实际目标和读取路由后再读。即使其他位置已引用相同目标，也须保留本处真实来源；不通过猜测编号试探目标，原文没有具体编号的泛指不猜目标。
-按回条的 access_mode/read_tool 选择正文工具：direct 用回条指定的 open_evidence（coverage 为 open_review_evidence）；inline_reference 用 read_document_reference_evidence 完成组件分页；isolated_reference 用 read_reference_facts，不借 open/search/table/global 工具绕过隔离。若回条只给 read_tool 和对应 evidence_id/target_key，就将该实际值放入同名参数；短句柄同时携带当前 source_handle_scope。
-inline 使用当前公开 target_key 读到 done。isolated 先仅传 target_key 取得无正文目录，entry_id 用机器值而非 source_label；选择实际需要条目，逐行分页完整读取，其余条目按有据理由 skip/skip_rest。used/开始读取不解除 pending。目录、正文的 cursor/offset 分开，续单条正文时 entry_ids 恰为一项，原样复制 next_*；重新打开 skipped 条目撤销 ignored。完整行自动返回 evidence/span，resolve_rows 仅取已读行句柄；整行不自动成为独立单位、数值、方法。
+按回条的 access_mode/read_tool 选择正文工具：direct 用回条指定的 open_evidence（coverage 为 open_review_evidence）；inline_reference 用 read_document_reference_evidence 完成组件分页；isolated_reference 用 read_reference_facts，不借 open/search/table/global 工具绕过隔离。若回条只给 read_tool 和对应 evidence_id/target_key，就将该实际值放入同名参数；直接使用当前回条的短句柄，所属目标由程序绑定。
+inline 使用当前公开 target_key 读到 done。isolated 使用 read_reference_facts：诊断已点名 evidence_ids 时，按其精确参数定位目录行，再复制返回的正文调用；没有点名来源时仅传 target_key 取无正文目录。entry_id 用机器值而非 source_label，选择实际需要条目逐行分页读取，其余条目按有据理由 skip/skip_rest。定位元数据、used/开始读取不等于正文完整交付。目录、正文的 cursor/offset 分开，续单条正文时 entry_ids 恰为一项，原样复制 next_*；重新打开 skipped 条目撤销 ignored。完整行自动返回 evidence/span，同次已交付的点名行可复用；resolve_rows 仅取已读行句柄，整行不自动成为独立单位、数值、方法。
 读完后依据原文决定业务接收，按 reference_routes 保存引用关系和真实字段；阅读回执本身不表示采用或完成。全局 atom 打开仅供调查；采用范围外共同/引用来源须经现有 dependency 登记后精确定位，登记容器不产生整块可绑业务 span。primary 缺口走既有精确 evidence span 的 scope blocker，不能把直接正文伪装依赖。邻接、同号、重叠不证明范围或适用性。`;
 
 export const REFERENCE_ACTION_GUIDANCE_ZH = `引用登记与定位
@@ -70,9 +72,12 @@ kind 依原文结构，精确款用 paragraph；并列目标分别登记。连�
 外部资料再次引用其他外部标准仍登记，先查已有匹配资料；有则读取并由你判断采用或不适用，无则按 literal_only 保留完整原字段及 anchor，keep_reference/reference_only、target_span_ids=[]，停止追索且不请求补文件。后续层级同样处理，文档内部定位不增加外部层级。不自报层级或改称 citation_only 规避一级依赖。当前正文可用性优先于旧缺失交接；缺入口则保留可见依赖及具体缺口。`;
 
 export const MULTI_SOURCE_REFERENCE_FIELD_GUIDANCE = `引用作者记录
-已有项目采用已登记引用的明确字段片段时，优先 stage_target_selector_draft(reference_selections, draft_fingerprint)：一次填写 occurrence_id、action、bindings 中的 item_key/target_field/target_span_ids、组件业务决定及必要本地上下文字段。程序将这一选择原子同步成现有 fields 和 references 的目标/接收/导入范围，不另行重填派生关系。适用性、条件/例外及哪些本地文字属于哪个字段仍由你判断；不为通过校验把整段塞进 method。未点名字段和接收者保留；歧义、共享抽样或无法安全分离的旧关联按诊断使用完整记录模式明确编辑。
+仅补改已有引用的组件处置时，用stage_reference_component_decisions提交当前draft_fingerprint、reference_key及本次确认的component_dispositions；程序按精确span合并并保留其他组件和接收关系，不必为补一项重交整条引用。此入口不修改整体action、import_scope、项目字段或destinations，也不自动创建接收者；这些关系仍由你按真实业务选择保存。
+其他引用编辑先看当前记录的write_mode。full_records表示既有占位、抽样或排除关系要求完整记录编辑，使用operation=upsert、draft.references及必要的draft.items，不反复尝试reference_selections。其余情况下，已有项目采用已登记引用的明确字段片段时，优先stage_target_selector_draft(reference_selections,draft_fingerprint)：一次填写occurrence_id、action、bindings中的item_key/target_field/target_span_ids、组件业务决定及必要本地上下文字段。程序将这一选择原子同步成现有fields和references的目标/接收/导入范围，不另行重填派生关系。适用性、条件/例外及哪些本地文字属于哪个字段仍由你判断；不为通过校验把整段塞进method。未点名字段和接收者保留；歧义或无法安全分离的旧关联仍按完整记录模式编辑。
 references.destinations、origin_binding、component_dispositions 是作者可写的引用接收声明，由你按当前原文和允许字段决定；编译后的接收关系、来源ID和哈希由程序生成，不直接编辑派生计划。
-保存已有引用前按 occurrence_id、raw_reference、origin_evidence_id、target_locator 核对不可变清单，不按 key、理由、数组位置推身份；同源多组件逐个 component_dispositions。原引用所在 origin_field 与被引内容 destination_field 分别真实声明，import_scope.allowed_fields 不扩大。
+引用可以增量接收：action及接收绑定作用于当前选定的target_span_ids，不要求先完成整个引用库存的判断。可先采用已确认组件并保存相应接收关系，未判断组件保持未决，后续继续处理；这不会把整章认定为已完成。完整记录upsert保留其他已存组件和接收者，不因剩余未决把已确认决定退回整章review，也不把剩余组件统一排除。
+target_span_ids不是不可变库存。暂不选择尚未判断的片段并不会将它从引用库存检查中删除；该部分继续未决，不能当作不适用或完成。保留已存正确决定、条件及接收者，按当前实际诊断核对已选片段恰好声明一次。已有不适用决定但片段选择未同步时，先核对当前记录；原判断仍成立可用逐组件工具原样重存以同步，不必重判整章。同一物理表行的原始HTML与规范化单元格表示可由程序按坐标及合并格几何确认身份对应；原文和ID均保留，身份对应不表示业务适用性已经获准。
+保存已有引用前按 occurrence_id、raw_reference、origin_evidence_id、target_locator 核对不可变清单，不按 key、理由、数组位置推身份；同源多组件逐个 component_dispositions。原引用所在origin_field与被引内容destination_field分别真实声明，不能把引用文字所在字段误当所有导入字段的上限。import_scope.allowed_fields应精确申报实际选择的导入字段，并受已登记来源政策约束；名称确由引用正文构成时也如实申报name。若字段本不应使用被引内容，应修正选源，不以无据扩大授权规避误绑。
 anchor 证明引用发生位置，fields 交付内容；整句已有 literal 时不重复显示，仍保留精确 anchor。普通 reference_only 各 occurrence 各留身份、anchor、import_scope、本地来源及真实 destinations，多 occurrence 可以同收项。顶层 reason 独立填写。
 非计数 reference_placeholder 的 destinations=[]，不造父空项/假接收。被引内容由真实 item 的 fields、criterion/continuation、typed table 或当前选中 sampling 分支的有效 present 组件承载；每片段归属已解析目标，必要本地片段属真实 origin。未选分支、complete_span_ids、table_key 或 context 不代替承载。多来源字段按可读顺序组合，每片段各证归属，同片段多 occurrence 保留依据但不重复文字。
 纯背景引用只在明确 context 且未用于业务时用 mention/reference_only、精确 anchor/target spans、destinations=[]、无 origin_binding；不删回执、不伪造 item。实际拆项同步修正引用接收及成员，不因一个 occurrence 错误删其他正确来源。`;
@@ -81,7 +86,7 @@ export const TABLE_SOURCE_OWNERSHIP_GUIDANCE = `表格来源
 表行回条中的 table_heading_context 按原文位置附可公开的前置标题原文与行的对应关系；这是有界上下文，不是程序认定的类别或层级。结合本地条款、上位分组和表题判断类别，不能机械采用第一条标题、把 context 视为无业务含义或把字段合法当作分类正确。
 表格验收要求须有非空 typed table：当前直接范围用 direct，引用表用 reference 并保留本地精确 reference_span_ids 及实际行/列入口。直接表已选属性及登记的正式表题由逻辑结构携带来源，无须为归属重复塞 criterion；独立判据仍须实际交付，题注不代替判据，table_key 不授权外表。
 逐项核对正式表题、业务行列路径、条件、允许值、单位、方法及表注。设计值属于判据，缺轴不造，整行不复制到每个标量。单位继承须核对真实表头/表注，条件与允许值按行列真实配对。
-table_expansion_work_packages 每个 row obligation 须由真实 item、同属性 branch 或有据 context/not_applicable 承接。候选 core_property 和物理行不裁决业务，不能通过 branches 全加/全删规避。
+table_expansion_work_packages 每个 row obligation 须由真实 item、同属性 branch、实际被项目选用的共享 sampling_rules 分支或有据 context/not_applicable 承接。未选用的抽样分支不算已交付。候选 core_property、序号及物理行只供版式导航，不裁决业务，不能通过 branches 全加/全删规避。
 先复用 read_saved_table_structure，再只读 pending/review fragments/行及必需邻文。依据单元格、合并、题注、续表与表注判断多层/重复表头和数据；续表继承同一正式标题，不造第二标题。推翻 row hint 逐受影响行写 row_role_overrides 和证据，不静默把表头移 data。无法确定保存 status=review。stage_table_structure 提交 typed 决定，ID/hash/canonical title/最终树由程序生成；note_rows 是 evidence，note_span_ids 是 span。`;
 
 export const ACCEPTANCE_BRANCH_SOURCE_COVERAGE_GUIDANCE = `每个 acceptance branch 的 requirement_span_ids 覆盖本分支实际条件及允许值，fields.requirement 覆盖所有采用分支要求；同 evidence 的包含/连续片段可覆盖，不需重复内部子 span。保留仍适用条件和数值，由你决定配对含义。`;
@@ -103,23 +108,28 @@ quantity/min_sampling 是人读要求；sampling.script→min_sampling_script �
 ${SAMPLING_COMPLETE_SPAN_GUIDANCE}`;
 
 export const SELECTOR_PATCH_GUIDANCE = `原子保存
-按实际 schema 使用两种独立写法，均传原生 JSON 对象及必要 source_handle_scope。完整记录模式：集合只在 draft 内，upsert 按 key 替换完整记录，不是字段 patch；item 保留顶层 reason、完整五字段 fields、inspection_data_type/reason/span_ids、完整 sampling 的 status/rule_key/branch_keys/三个 span 数组/reason/confidence，空值按 schema 显式填写。
+stage_target_selector_draft按实际 schema 使用两种独立写法，均传原生 JSON 对象；来源所属目标由工具会话绑定，不传 source_handle_scope。完整记录模式：集合只在 draft 内，upsert 按 key 替换完整记录，不是字段 patch；item 保留顶层 reason、完整五字段 fields、inspection_data_type/reason/span_ids、完整 sampling 的 status/rule_key/branch_keys/三个 span 数组/reason/confidence，空值按 schema 显式填写。
 引用字段选择模式：先保存真实项目，再携带当前 draft_fingerprint 与 reference_selections，以稳定 item_key 和字段声明一次明确业务选择。不得同时给 draft、remove_keys、collection 或 replace_collection。程序保留未点名内容并同步可确定关系；local_context_fields 仅含你判断应交付的精确本地片段，[] 表示保持既有本地字段，不表示无条件或未规定。版本过期先读当前记录；出现歧义按回条明确选择，不猜编号。
+已有引用的逐组件处置另用stage_reference_component_decisions局部保存，只交本次确认的完整组件决定；未点名部分由程序保留。工具不接收quote_bindings，需新精确片段时先正常定位。它不替代项目字段、抽样分支或接收关系写入，保存后仍处理当前诊断，不能据此报告整个引用完成。
 及时保存已确认独立记录，可一次多条，按实际字节上限组织，不为凑批重写正确项。quote_bindings 可在两种模式中使用已读精确子串，重复句用 prefix/suffix 消歧，$alias 同次定义同次使用。参数或任一定位失败，全次草稿与临时绑定均不落盘；ok=false 不代表删除或更新生效。
 remove_keys 必须指定 collection，该次 draft 只含该集合；空 remove_keys 省略，同 key 不同时 remove/upsert，拆父项可同事务删父加真实子项或沿旧 key 完整替一个子项。保留删除意图、来源绑定与对应记录原子关系；纯 upsert 可拆小批，但每条完整且原计划全部 key 最终保存。
 source_dispositions 无持久化 key，目录给当前内容读取键；修改部分 spans 同次删除旧读取键并 upsert 剩余完整记录，内容变后重取，不把读取 key 写草稿。普通阶段清集合用明确 replace_collection=[]；空 upsert 不清集合，历史 coverage_repair 禁止整集合替换。
 ok=true/saved_local_validation_failed 已保存全部增删，不重放删除；按当前 key 修真实问题。保存回执只含身份时按需读完整记录，不假定 saved_records 仍有全文。仅局部通过不能证明阶段、全局或封存完成。`;
 
 export const DIAGNOSTIC_PROTOCOL = `诊断使用
+主待办与计划：current_work/selector_repair_work安排当前合同义务；有主待办时model_review是次级候选，选择使用时按supporting_read读取，不把它当成并列下一步。没有主待办的比较线索仍按其实际读取路由使用。相同source_access读取路线可合并为evidence_ids组，权限和原文身份不变；分组不裁定业务适用性。历史已读不等于本次正文已经交付；source_delivery点明当前实际交付状态。next_action=author_source_decision_and_save时，点名正文已返回，继续自行判断并保存有据决定；仅具体上下文仍缺才用支持读取入口补读，不以再次读同一正文代替保存。这是下一步交接，不是新增业务通过门槛。
+整章引用仍待判断时，先由你自己挑选和分组组件，提出具体待判断问题与下一步，用save_target_component_plan按key保存计划并选择active_step_key。已有model_step表示你已选中的当前执行步骤，next_action=execute_model_authored_step时由你选择工具继续，而不是再次把整章是否适用当作前置决定。record_read和整组诊断保留为支持导航，缺上下文才补读。可以先保存已经判断清楚的组件，其他组件继续未决；完整记录upsert仍保留未修改内容，不以统一不适用代替逐项判断。span_ids可暂空以计划针对性读取，读到事实后自行决定关联、条件、独立项或有据不适用；执行并保存真实作者记录后更新步骤。程序不替你分组、选适用性或批准done。计划、review和调查说明都不代替接收关系，不计业务完成，也不放宽原校验或预算。
+step_accounting仅报告当前步骤点名span是否已有作者声明，不证明语义或字段通过。计划outcome是历史陈述，已保存作者记录及当前诊断优先。next_action=review_model_plan_against_current_todo时，当前缺口位于已声明步骤之外：由你核对事实并更新计划、选择待办步骤，再继续实际保存；程序不会自动标done或替你选择下一组件，不重复提交同一批已存决定。
 先区分当前字段诊断、有限来源诊断、已执行阶段快照、保存快照及历史导航。各用自身 cursor/fingerprint/scope，不互换，不把诊断指纹当草稿指纹。详情只复制 next_tool_arguments/next_page。过期时按当前只读入口刷新，不为获取旧页重复保存或完整检查未改草稿；旧稳定 key 仍可导航当前完整记录。
-依据 code+稳定记录/occurrence/evidence 身份、actual、expected、writable_paths 及准确 next_tool 读取；问题路径不是 collection。表结构用 read_saved_table_structure/read_table_summary、stage_table_structure，selector 用 read_target_selectors、stage_target_selector_draft。保存作者真实决定，不直接改来源、registry、编译计划、ID/hash、source_clause 或检查计数。
-当前持久化待办安排作者工作，不替你判断业务。共享引用/规则涉及多个接收项时核对全部实际相关项，不机械复制答案；每确认独立真实记录即保存。工具回条顶层 next_tool/next_tool_arguments 是当前下一步入口；诊断内部的来源路由、详情链接与预览用于支持该待办，不是另一条推进指令。重复诊断的 diagnostic_ref 指向同一回条内唯一完整诊断，实际值、可写路径和分页入口以该正文为准。deferred 表示未触及作者记录，不表示允许跳过或推迟到下一阶段。
+依据 code+稳定记录/occurrence/evidence 身份、actual、expected、writable_paths 及准确 next_tool 读取；问题路径不是 collection。表结构用 read_saved_table_structure/read_table_summary、stage_table_structure，selector 用 read_target_selectors、stage_target_selector_draft；仅改已有引用的组件处置可用stage_reference_component_decisions。保存作者真实决定，不直接改来源、registry、编译计划、ID/hash、source_clause 或检查计数。
+当前持久化交接安排具体作者工作，不替你判断业务。selector_repair_work 是当前合同错误；selector_authoring_work 或 advisory_only=true 的 current_work 是尚未完成判断的表结构、表行或来源导航，不表示必须新增验收项目，不是新的程序门槛。共享引用/规则涉及多个接收项时核对全部实际相关项，不机械复制答案；每确认独立真实决定即保存。工具回条顶层 next_tool/next_tool_arguments 是当前下一步入口；内部来源路由、详情链接与预览支持这项工作，不另行授予推进权限。重复诊断的 diagnostic_ref 指向同一回条内唯一完整诊断，实际值、可写路径和分页入口以该正文为准。deferred 表示未触及作者记录，不表示允许跳过。
 来源未处理由你决定真实字段承载、lot组织范围或有据 context/ignored，不把真实业务降背景。compiler_unhandled_evidence 以 evidence_ids 为义务，不以新增 span 为进展；核对 candidate_spans、author_field_bindings、saved_field_binding_instruction、reference_anchor_bindings。anchor/已存 reference 不等于实际接收；不重复相同绑定试错。父条款由现有 table/semantic/ledger 优先级机械推导，按回条 derivation_priority 修作者路径，不手填 source_clause。
 有限诊断空、目录读完、局部通过或某页没列出都不授予完整通过。异常先看 owner/terminal/actual_error：有明确作者可写路径则修输入；程序不变量/不可写故障保留检查点走现有终止路线，不把任意异常都当参数错。`;
 
 export const LIFECYCLE_PROTOCOL = `当前 direct-validation/v1 生命周期
-保存草稿→处理当前作者待办并完成业务判断→完整 compiler/strict 校验→seal。保存、本地通过、阶段通过、正式验证通过、封存是不同状态；局部 issue_count=0 不抵消其他记录的未决诊断，当前诊断空也不证明业务完整。primary 允许按抽样协议暂存 pending 后进入 sampling；从 sampling 起，未完成的抽样判断属于必须先处理的作者待办。
-工具状态先决定权限：terminal=true 后不再读、写、修复、验证或封存；真实资料等待按既有调度交接；已验证候选直接 seal 精确的已验证 fingerprint。其余情况下，有 selector_repair_work 或当前作者错误时，先按顶层 next_tool/next_tool_arguments 读取记录及必要来源、保存真实修复，再处理最新回条的下一待办。不用 advance/commit 刷新这些已知问题；参数错误也不改变待办优先级。
+保存草稿→处理当前作者待办并完成业务判断→完整 compiler/strict 校验→seal。保存回条和续接使用同一execution_state：authoring继续当前作者动作，ready_for_check执行返回的检查入口，validated封存精确指纹。一次保存或一批工作完成后跟随新动作继续，文字状态汇报不结束target。保存、本地通过、阶段通过、正式验证通过、封存是不同状态；局部 issue_count=0 不抵消其他记录的未决诊断，当前诊断空也不证明业务完整。primary 允许按抽样协议暂存 pending 后进入 sampling；从 sampling 起，未完成的抽样判断属于必须先处理的作者待办。
+工具状态先决定权限：terminal=true 后不再读、写、修复、验证或封存；真实资料等待按既有调度交接；已验证候选直接 seal 精确的已验证 fingerprint。其余情况下，有 selector_repair_work 或当前作者错误时，按next_action核对更新模型计划或执行当前model_step；没有已选步骤时按顶层next_tool/next_tool_arguments取得记录和必要来源。启动交接与工具回条使用同一动作；嵌套current_work中的next_action也按相同规则执行。保存真实修复，再处理最新回条的下一待办。不用advance/commit刷新这些已知问题；参数错误先按实际诊断修正，不能据此跳过当前待办或重做整章调查。
+没有字段错误但仍有 selector_authoring_work 时，按其具体来源和读取入口继续判断并保存，不退回全局目录或只交待办总结。未处置表行可以进入既有项、同属性分支、独立项或有据的上下文/不适用处置，由你按原文决定，不机械一行一项。表结构成功保存是结构进展，仍须继续处理对应表行；结构确认不等于验收项目或业务判断完成。该交接不扩大阶段校验或封存条件。
 当前作者错误清空且你已完成范围内业务判断后，才执行正式检查。阶段顺序为 primary→sampling→table→commit；advance 是当前阶段完整性检查，next_stage 是下一阶段，不是当前阶段，复制回条的 expected_next_stage 或 next_tool_arguments。primary/sampling 检查当前阶段，table→commit 为完整预检；已完整草稿也可从任一阶段 commit，不必为形式逐阶段重查。commit 使用当前 draft_fingerprint，通过后立即 seal 返回的已验证 fingerprint，不新增语义审核轮次。
 待办拦截不执行正式检查、不消耗其次数，也不清零已有计数；正式检查仍按原评分、停滞上限及预算处理。完整提交前的双向业务核对随作者工作完成，不在每次保存、信息线索或成功 commit 后重新全局调查。正常续跑及输出中断只从实际持久化结果续接，未收到持久回条的调用不能假定成功，也不拼接截断 JSON。历史计数、预算、检查点与原上限持续保留，模型不能自行重置、放宽、换会话或打开 revision。`;
 
@@ -206,7 +216,7 @@ export interface StartupOptions {
   inherited_stage_retry?: { stage: string; best_stage_rank: number; best_issue_count: number; consecutive_non_improvements: number };
   resume_focus?: Array<{ code: string; path: string; evidence_ids?: string[]; how_to_pass?: string;
     next_tool?: string; next_tool_arguments?: Record<string, unknown>; record_read?: { tool: string; arguments: Record<string, unknown> } }>;
-  historical_repair_navigation?: unknown; selector_blocker_handoff?: string;
+  historical_repair_navigation?: unknown; selector_blocker_handoff?: string; scope_handoff?: unknown;
 }
 const block = (tag: string, value: unknown) => `<${tag}>\n${typeof value === 'string' ? value : JSON.stringify(value)}\n</${tag}>`;
 export function targetSelectorStagePrompt(stage: string): string {
@@ -220,6 +230,7 @@ export function targetSelectorStartupPrompt(o: StartupOptions): string {
     current_selector_checkpoint: o.current_selector_checkpoint };
   if (o.current_selector_checkpoint === 'validated_candidate') return `${block('current_state', state)}\n当前候选已通过程序验证；使用当前回条的已验证 fingerprint 调用 seal_validated_plan。不要重新调查或改写该候选。`;
   return [block('current_state', state),
+    o.scope_handoff ? block('confirmed_target_scope', o.scope_handoff) : '',
     o.recovering_coverage_failure ? '恢复存量 coverage_repair；读取绑定的 read_coverage_review，只修有据 findings，真实缺项可新增，保留其他记录；走该历史检查点既有收尾协议，不启动新的常规 Coverage 流程。'
       : o.resume ? '从实际持久化检查点继续整个 target；已确认首写前空白才可建立首份 selector，已有记录按 key 增量完善。'
         : '依据已确认范围抽取全部验收要求并完成验证封存。',
@@ -263,9 +274,16 @@ export function preflightContinuationPrompt(context: { state: 'historical' | 'ov
     context.seal_failed ? '封存未完成。按最新回条处理当前作者待办，全部当前作者错误清空后重新完整commit，再seal其返回的成功fingerprint。' : '保存后跟随最新待办，全部当前作者错误清空且业务判断完成后再完整验证，不以局部通过替代整目标完成。',
     '所有检查点、计数和预算保留；不可写程序故障按当前回条停止，不改编译产物。'].filter(Boolean).join('\n\n');
 }
-export function targetCompletedContinuationPrompt(context: { stage: string; current_work?: unknown; preflight_note?: string; blocking_summary?: string }): string {
+export function targetCompletedContinuationPrompt(context: { stage: string; current_work?: unknown; next_step?: unknown; preflight_note?: string; blocking_summary?: string; scope_handoff?: unknown }): string {
+  if (context.next_step) return [
+    '继续当前target。上一条文字是中途状态，已保存成果以工具记录为准。',
+    context.scope_handoff ? block('confirmed_target_scope', context.scope_handoff) : '',
+    block('execution_step', context.next_step),
+    context.current_work ? block('current_work', context.current_work) : '',
+    '执行当前动作并跟随保存后的下一步：authoring时继续模型判断和保存；ready_for_check时执行给出的检查；validated时封存精确指纹。当前待办的读取入口只供缺上下文时使用，不必因续接重新读取已交付正文或正确记录。真实资料等待和terminal状态按工具交接。保留检查点、历史计数和预算。',
+  ].filter(Boolean).join('\n\n');
   return ['上一轮文字回复结束，但当前 target 尚未封存；从持久化进度继续执行。还有可修问题时调用当前下一步工具，不能以待办总结代替执行；实际封存、terminal=true 或资料等待由工具状态确认。', targetSelectorStagePrompt(context.stage),
-    context.current_work ? `${block('current_work', context.current_work)}\n按此入口处理当前记录及直接依赖，保存真实决定后跟随当前回条；不先通读全局目录。`
+    context.current_work ? `${block('current_work', context.current_work)}\n按此入口处理当前记录或未决来源及直接依赖，保存真实决定后跟随当前回条；advisory_only 只安排业务判断，不预设缺项或拆项。不要先通读全局目录，也不要仅以已读到但尚未保存的总结收尾。`
       : context.preflight_note || '按当前作者目录定位剩余工作，只按 key 读取需修改记录，完成有据差异后验证。',
     context.blocking_summary || '', '保留所有历史计数与预算；调查交接和局部完成不能代替最终验证及封存。'].filter(Boolean).join('\n\n');
 }

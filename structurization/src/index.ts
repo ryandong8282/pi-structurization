@@ -230,7 +230,8 @@ export {
 } from "./catalog-review-runtime.js";
 export * from "./target-fan-in.js";
 export { summarizeDiscoveryPerformance } from "./discovery-performance.js";
-export { DEFAULT_TARGET_TRANSPORT_RETRIES } from "./attempt-budget.js";
+export { DEFAULT_TARGET_TRANSPORT_RETRIES, hasResumableTransportRetry,
+  type TargetAttemptCounters, type TargetAttemptLimits, type TransportRetryWindow } from "./attempt-budget.js";
 export { ChatGptSubscriptionAuth, type ChatGptSubscriptionView } from "./chatgpt-auth.js";
 
 export { externalReferenceExpansionPolicy, externalReferenceFieldPolicy, type ExternalReferenceExpansionPolicy } from "./external-reference-policy.js";

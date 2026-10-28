@@ -1463,7 +1463,7 @@ describe("target modeling phase budget", () => {
     expect(checkpoint).toHaveBeenCalledOnce();
   });
 
-  test("clears cumulative bytes after a successful staged draft so later reads start a new slice", async () => {
+  test.each(["stage_target_selector_draft", "stage_reference_component_decisions"])("starts a new existing byte slice after successful %s", async toolName => {
     const checkpoint = vi.fn(async () => ({
       checkpoint_fingerprint: "checkpoint-reset",
       working_selector_sha256: "selector-reset",
@@ -1475,7 +1475,7 @@ describe("target modeling phase budget", () => {
       execute: async () => ({ content: [{ type: "text", text: cumulativeReadChunk }] }),
     } as unknown as ToolDefinition;
     const stageTool = {
-      name: "stage_target_selector_draft",
+      name: toolName,
       execute: async () => ({
         content: [{ type: "text", text: JSON.stringify({ ok: true, draft_status: "saved_not_validated" }) }],
         details: { ok: true, draft_status: "saved_not_validated" },
@@ -1510,7 +1510,11 @@ describe("target modeling phase budget", () => {
     });
   });
 
-  test("does not clear cumulative bytes after a failed commit", async () => {
+  test.each([
+    { toolName: "commit_target_selector_draft", ok: false },
+    { toolName: "stage_reference_component_decisions", ok: false },
+    { toolName: "save_target_component_plan", ok: true },
+  ])("does not renew a byte slice for $toolName with selector mutation absent", async ({ toolName, ok }) => {
     const checkpoint = vi.fn(async () => ({
       checkpoint_fingerprint: "checkpoint-failed-commit",
       working_selector_sha256: "selector-failed-commit",
@@ -1522,10 +1526,10 @@ describe("target modeling phase budget", () => {
       execute: async () => ({ content: [{ type: "text", text: cumulativeReadChunk }] }),
     } as unknown as ToolDefinition;
     const commitTool = {
-      name: "commit_target_selector_draft",
+      name: toolName,
       execute: async () => ({
-        content: [{ type: "text", text: JSON.stringify({ ok: false, error: "selector_input_error" }) }],
-        details: { ok: false, error: "selector_input_error" },
+        content: [{ type: "text", text: JSON.stringify({ ok, selector_mutation: false }) }],
+        details: { ok, selector_mutation: false },
       }),
     } as unknown as ToolDefinition;
     const [read, commit] = withTargetModelingPhaseBudget(
@@ -1642,6 +1646,7 @@ describe("target modeling phase budget", () => {
 
   test.each([
     "stage_target_selector_draft",
+    "stage_reference_component_decisions",
     "advance_target_selector_stage",
     "commit_target_selector_draft",
   ])("keeps a successful %s checkpoint and continues from a fresh session when only context tokens are full", async (toolName) => {
@@ -1706,7 +1711,7 @@ describe("target modeling phase budget", () => {
     expect(checkpoint).toHaveBeenCalledOnce();
   });
 
-  test("publishes a context stop alongside a failed save without claiming a successful checkpoint or leaking internal IDs", async () => {
+  test.each(["stage_target_selector_draft", "stage_reference_component_decisions"])("publishes a context stop alongside failed %s without claiming a saved checkpoint", async toolName => {
     const publicBody = { ok: false, error: "neutral_save_rejected", actual: { span_id: "s1" },
       next_tool: "open_evidence", next_tool_arguments: { evidence_id: "e1" }, instruction: "Confirm the authored source." };
     const execute = vi.fn(async () => ({ content: [{ type: "text", text: JSON.stringify(publicBody) }],
@@ -1717,7 +1722,7 @@ describe("target modeling phase budget", () => {
     const reset = vi.spyOn(budget, "resetCumulativeSlice");
     const checkpoint = vi.fn(async () => ({ checkpoint_fingerprint: "unchanged-checkpoint",
       working_selector_sha256: "unchanged-selectors", history_sequence: 2, selector_stage: "table" }));
-    const [bounded] = withTargetModelingPhaseBudget([{ name: "stage_target_selector_draft", execute } as unknown as ToolDefinition],
+    const [bounded] = withTargetModelingPhaseBudget([{ name: toolName, execute } as unknown as ToolDefinition],
       budget, () => "table", checkpoint);
     const result = await bounded!.execute("failed-write", {}, undefined as never, undefined as never) as { content: Array<{ text: string }> };
     const published = JSON.parse(result.content[0]!.text);

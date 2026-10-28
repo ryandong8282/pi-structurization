@@ -30,6 +30,108 @@ async function fixture(subject = "包装封口", count = 7) {
 }
 
 describe("durable author repair work", () => {
+  test('a current failed save is repaired before resuming its retained parent todo', async () => {
+    const { workspace, controller, selectors, span } = await fixture('虚构标识板', 7);
+    const original = await controller.selectorRepairWork();
+    expect(original?.record_read?.arguments.key).toBe('first');
+    const invalid = structuredClone(selectors.items[1]!);
+    invalid.sampling = { ...invalid.sampling, status: 'reference', rule_key: 'unknown-rule', branch_keys: ['default'] };
+    const before = await workspace.readState();
+    const saved = await controller.dispatch('stage_target_selector_draft', { draft: { items: [invalid] } });
+    expect(saved).toMatchObject({ ok: true, draft_status: 'saved_local_validation_failed',
+      next_tool: 'read_target_selectors', next_tool_arguments: { collection: 'items', key: 'second' } });
+    const resumed = await ToolController.create(workspace);
+    const fieldDiagnostics = (resumed as any).currentFieldDiagnostics.bind(resumed);
+    vi.spyOn(resumed as any, 'currentFieldDiagnostics').mockImplementation(async (...args) => {
+      const result = await fieldDiagnostics(...args);
+      return { ...result, cached: { ...result.cached, issues: [...result.cached.issues].reverse() } };
+    });
+    expect((await resumed.selectorExecutionStep()).work?.record_read?.arguments.key).toBe('second');
+    const localFocus = await resumed.selectorRepairWork();
+    const detail = await resumed.dispatch('get_target_context', {
+      ...localFocus!.diagnostic_read.arguments, field_diagnostic_detail_mode: 'full',
+    });
+    expect((detail.selector_issues as any[])[0].record_read.arguments.key).toBe('second');
+    invalid.sampling = { ...invalid.sampling, status: 'explicit', rule_key: '', branch_keys: [],
+      quantity_span_ids: invalid.criterion_span_ids, script_span_ids: invalid.criterion_span_ids, reason: '虚构原文规定的抽查数量。' };
+    const fixed = await resumed.dispatch('stage_target_selector_draft', { draft: { items: [invalid] } });
+    expect(fixed).toMatchObject({ ok: true, next_tool_arguments: { key: 'first' } });
+    expect((await resumed.selectorRepairWork())?.identity).toBe(original?.identity);
+    expect((await workspace.readState()).validation_attempts).toBe(before.validation_attempts);
+    expect((await workspace.readState()).selector_protocol).toEqual(before.selector_protocol);
+  });
+  test("historical reads do not masquerade as delivery; a current body read hands off to authoring", async () => {
+    const { workspace, manifest, selectors } = await fixture("虚构密封扣", 9);
+    selectors.residual_source_dispositions = [];
+    const registry = await workspace.readSourceSpanRegistry();
+    const heading = manifest.evidence.find(row => row.role === "context")!;
+    selectors.lots[0]!.scope_span_ids = [fullSpanFor(registry, heading.evidence_id, heading.text.length)];
+    await workspace.writeWorkingSelectors(JSON.stringify(selectors));
+    await workspace.updateState(state => { state.selector_stage = "primary"; });
+    const source = clauseRecord(manifest, "2.1.3");
+    const first = await ToolController.create(workspace);
+    await first.dispatch("open_evidence", { evidence_id: source.evidence_id, cursor: 0 });
+    const before = await workspace.readState(), draftBefore = await readFile(workspace.workingSelectorPath, "utf8");
+    const resumed = await ToolController.create(workspace);
+    expect(await resumed.selectorExecutionWork()).toMatchObject({ code: "author_source_review_pending",
+      source_delivery: { current_execution_complete: false, historical_read_alone_is_not_delivery: true } });
+    const read = await resumed.dispatch("open_evidence", { evidence_id: source.evidence_id, cursor: 0 });
+    expect(read).toMatchObject({ ok: true, current_work: { source_delivery: { current_execution_complete: true } },
+      next_action: { kind: "author_source_decision_and_save", decision_owner: "model", save_tool: "stage_target_selector_draft" } });
+    expect(read).not.toHaveProperty("next_tool");
+    expect(await readFile(workspace.workingSelectorPath, "utf8")).toBe(draftBefore);
+    expect((await workspace.readState()).validation_attempts).toBe(before.validation_attempts);
+    const item = itemRecord("appearance", "外观完整性", "一般项目", fullSpanFor(registry, source.evidence_id, source.text.length), "中性原文的作者选择。");
+    expect(await resumed.dispatch("stage_target_selector_draft", { draft: { items: [item] } })).toMatchObject({ ok: true });
+    expect((await resumed.selectorExecutionWork())?.evidence_ids).not.toEqual([source.evidence_id]);
+    expect((await workspace.readState()).next_history_sequence).toBeGreaterThan(before.next_history_sequence);
+  });
+  test.each(["观察窗密封", "软管标识"])("%s: an empty field channel still hands off unhandled source and saves a real item", async subject => {
+    const { workspace, manifest, selectors } = await fixture(subject, 11);
+    selectors.residual_source_dispositions = [];
+    const initialRegistry = await workspace.readSourceSpanRegistry();
+    const heading = manifest.evidence.find(row => row.role === "context")!;
+    selectors.lots[0]!.scope_span_ids = [fullSpanFor(initialRegistry, heading.evidence_id, heading.text.length)];
+    await workspace.writeWorkingSelectors(JSON.stringify(selectors));
+    await workspace.updateState(state => { state.selector_stage = "primary"; });
+    const controller = await ToolController.create(workspace);
+    const before = await workspace.readState();
+    expect(await controller.selectorRepairWork()).toBeUndefined();
+    const work = await controller.selectorExecutionWork();
+    expect(work).toMatchObject({ code: "author_source_review_pending", advisory_only: true, budget_consumed: false });
+    const source = clauseRecord(manifest, "2.1.3");
+    expect((work as any).evidence_ids).toEqual([source.evidence_id]);
+    for (const read of [work!.record_read, work!.diagnostic_read]) {
+      if (!read) continue;
+      expect(Check(createPiTools(controller).find(tool => tool.name === read.tool)!.parameters, read.arguments)).toBe(true);
+      expect(await controller.dispatch(read.tool, read.arguments)).toMatchObject({ ok: true });
+    }
+    const registry = await workspace.readSourceSpanRegistry();
+    const item = itemRecord("appearance", "外观完整性", "一般项目", fullSpanFor(registry, source.evidence_id, source.text.length), "虚构原文的独立要求。");
+    expect(await controller.dispatch("stage_target_selector_draft", { draft: { items: [item] } })).toMatchObject({ ok: true });
+    const saved = JSON.parse(await readFile(workspace.workingSelectorPath, "utf8"));
+    expect(saved.items.map((row: any) => row.key)).toEqual([...selectors.items.map(row => row.key), "appearance"]);
+    expect((await controller.selectorExecutionWork())?.identity).not.toBe(work!.identity);
+    expect((await workspace.readState()).validation_attempts).toBe(before.validation_attempts);
+  });
+
+  test("unfinished-source navigation does not create a new primary-stage validation gate", async () => {
+    const { workspace, selectors } = await fixture("中性面板", 13);
+    selectors.residual_source_dispositions = [];
+    await workspace.writeWorkingSelectors(JSON.stringify(selectors));
+    await workspace.updateState(state => { state.selector_stage = "primary"; });
+    const controller = await ToolController.create(workspace);
+    expect(await controller.selectorExecutionWork()).toMatchObject({ advisory_only: true });
+    expect(await controller.dispatch("advance_target_selector_stage", { next_stage: "sampling" }))
+      .toMatchObject({ ok: true, stage: "sampling" });
+  });
+
+  test("an explicit residual source decision is not mechanically reopened as a missing item", async () => {
+    const { workspace } = await fixture("已有上下文决定", 7);
+    await workspace.updateState(state => { state.selector_stage = "primary"; });
+    expect(await (await ToolController.create(workspace)).selectorExecutionWork()).toBeUndefined();
+  });
+
   test("primary routes a failed author record to repair while temporary sampling remains legal until sampling", async () => {
     const { workspace, selectors } = await fixture("虚构隔振装置", 19);
     await workspace.updateState(state => { state.selector_stage = "primary"; });

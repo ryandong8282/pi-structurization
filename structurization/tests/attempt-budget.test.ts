@@ -5,6 +5,7 @@ import {
   canRetryTargetFailure,
   canTransitionToFreshSessionRestart,
   classifyTargetFailure,
+  hasResumableTransportRetry,
   isRepairSessionRestartRequired,
   isScopeExtensionRequired,
   isUnrecoverableProtocolBudgetFailure,
@@ -19,6 +20,38 @@ import {
 } from "../src/attempt-budget.js";
 
 describe("Pi target attempt budgets", () => {
+  test.each([["HTTP 503 unavailable", "http_503"], ["Connection error.", "connection_closed"], ["Request timed out.", "timeout"]])(
+    "only an unexhausted matching network checkpoint is eligible for recovery: %s", (error, errorKey) => {
+      const counters = { transport_attempts: 7, candidate_validation_attempts: 3, coverage_repair_attempts: 1 };
+      const limits = targetAttemptLimits({ maxAttempts: 3 });
+      const window = { checkpoint: "a".repeat(64), error_key: errorKey, consecutive_failures: 3 };
+      const before = structuredClone({ counters, limits, window });
+      expect(hasResumableTransportRetry(error, counters, limits, window)).toBe(true);
+      expect(hasResumableTransportRetry(error, counters, limits, { ...window, consecutive_failures: 4 })).toBe(false);
+      expect(hasResumableTransportRetry(error, counters, limits, { ...window, error_key: "unrelated-incident" })).toBe(false);
+      expect(hasResumableTransportRetry(error, counters, limits, undefined)).toBe(false);
+      expect(hasResumableTransportRetry("target_progress_stalled", counters, limits, window)).toBe(false);
+      expect(hasResumableTransportRetry("HTTP 401 invalid api key", counters, limits, window)).toBe(false);
+      expect(hasResumableTransportRetry("500 context_too_large", counters, limits, { ...window, error_key: undefined })).toBe(false);
+      expect({ counters, limits, window }).toEqual(before);
+    },
+  );
+
+  test.each(["Connection error.", "Request timed out."])("SDK transport message does not spend candidate repair attempts: %s", error => {
+    const counters = { transport_attempts: 7, candidate_validation_attempts: 3, coverage_repair_attempts: 1 };
+    const before = structuredClone(counters);
+    const limits = targetAttemptLimits({ maxAttempts: 3 });
+    expect(classifyTargetFailure(error)).toBe("transport");
+    let window;
+    for (let failure = 1; failure <= 4; failure++) {
+      window = recordTransportFailure(window, "neutral-saved-checkpoint", error);
+      expect(window).toMatchObject({ error_key: error.startsWith("Connection") ? "connection_closed" : "timeout", consecutive_failures: failure });
+      expect(canRetryTargetFailure(error, counters, limits, window)).toBe(failure <= 3);
+    }
+    expect(counters).toEqual(before);
+    expect(classifyTargetFailure(`validation rejected field containing '${error}'`)).toBe("candidate");
+  });
+
   test("does not accumulate different network failures at the same saved checkpoint", () => {
     let window;
     for (const error of ["408 stream disconnected", "500 request one", "503 auth_unavailable", "408 stream disconnected", "500 request two"]) {
@@ -29,6 +62,26 @@ describe("Pi target attempt budgets", () => {
     expect(window).toMatchObject({ error_key: "http_500", consecutive_failures: 2 });
     expect(recordTransportFailure(window, "new-checkpoint", "500 request four").consecutive_failures).toBe(1);
     expect(recordTransportFailure({ checkpoint: "checkpoint", consecutive_failures: 9 }, "checkpoint", "500 legacy").consecutive_failures).toBe(1);
+  });
+
+  test.each([
+    "OpenAI Responses stream ended before a terminal response event",
+    "Error: OpenAI Responses stream ended before a terminal response event.",
+  ])("an incomplete SDK stream retries within its transport window: %s", error => {
+    const counters = { transport_attempts: 7, candidate_validation_attempts: 3, coverage_repair_attempts: 1 };
+    const limits = targetAttemptLimits({ maxAttempts: 3 });
+    const before = structuredClone({ counters, limits });
+    expect(classifyTargetFailure(error)).toBe("transport");
+    expect(transportErrorKey(error)).toBe("connection_closed");
+    let window;
+    for (let failure = 1; failure <= 4; failure++) {
+      window = recordTransportFailure(window, "b".repeat(64), error);
+      expect(window.consecutive_failures).toBe(failure);
+      expect(canRetryTargetFailure(error, counters, limits, window)).toBe(failure <= 3);
+      expect(hasResumableTransportRetry(error, counters, limits, window)).toBe(failure <= 3);
+    }
+    expect({ counters, limits }).toEqual(before);
+    expect(classifyTargetFailure(`validation rejected field containing '${error}'`)).toBe("candidate");
   });
 
   test("keeps proxy 503 cooldowns retryable, but not permanent credentials or context errors", () => {
@@ -447,5 +500,22 @@ describe("Pi target attempt budgets", () => {
     expect(canRetryTargetFailure("HTTP 503", counters, limits, undefined, "coverage_harness_defect"))
       .toBe(false);
     expect(canRetryTargetFailure("HTTP 503", counters, limits)).toBe(true);
+  });
+
+  test.each([
+    "incomplete_repair_without_durable_progress: 3 completed rounds left an unchanged draft",
+    "incomplete_repair_durable_progress_cycle: a completed round repeated the same draft",
+  ])("does not restart a completed-round stagnation even with spare budget: %s", (error) => {
+    const counters = { transport_attempts: 2, candidate_validation_attempts: 1, coverage_repair_attempts: 0 };
+    const limits = { transport_retries: 3, candidate_validation_attempts: 12, coverage_repair_attempts: 1 };
+    const previous = { ...counters };
+    for (const wrapped of [error, JSON.stringify({ error })]) {
+      expect(protocolTargetFailure(wrapped)).toEqual({ failure_class: "coverage_harness_defect", retryable: false });
+      expect(classifyTargetFailure(wrapped)).toBe("coverage_harness_defect");
+      expect(canRetryTargetFailure(wrapped, counters, limits)).toBe(false);
+      expect(canRetryTargetFailure(wrapped, counters, limits, undefined, "candidate")).toBe(false);
+    }
+    expect(counters).toEqual(previous);
+    expect(limits.candidate_validation_attempts).toBe(12);
   });
 });

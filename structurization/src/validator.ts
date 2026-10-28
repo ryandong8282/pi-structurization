@@ -1295,6 +1295,9 @@ function validatePlanTextWithSources(
   const plan = parsed as SemanticSourcePlan;
   const compactSpans = new Map(compactSourcePlan?.source_spans.map(span => [span.span_id, span]));
   const issues: ValidationIssue[] = [];
+  // Imported field sources intentionally remain separate from direct item
+  // evidence. Count actual validated field content, never a reference claim.
+  const receivedFieldEvidenceIds = new Set<string>();
   if (plan.job_id !== manifest.job_id) {
     issues.push({ code: "job_mismatch", path: "/job_id", message: "job_id does not match the evidence manifest", details: { required_action: "job_id does not match the evidence manifest" }});
   }
@@ -1541,6 +1544,7 @@ function validatePlanTextWithSources(
       `/acceptance_items/${index}/sampling/evidence_ids`,
     );
     BOUND_FIELDS.forEach((field) => {
+      const fieldIssueStart = issues.length;
       const value = item[field];
       const binding = item.field_bindings[field];
       const path = `/acceptance_items/${index}/field_bindings/${field}`;
@@ -1629,6 +1633,12 @@ function validatePlanTextWithSources(
           message: "A not_applicable empty field must not claim evidence or source fragments",
         details: { required_action: "A not_applicable empty field must not claim evidence or source fragments" }
 });
+      }
+      if (issues.length === fieldIssueStart && value && binding.status === "bound"
+        && binding.composition !== "semantic_summary" && binding.composition !== "not_applicable") {
+        for (const fragment of binding.source_fragments) {
+          if (fragment.text.trim() && value.includes(fragment.text)) receivedFieldEvidenceIds.add(fragment.evidence_id);
+        }
       }
     });
     const table = item.table_semantics;
@@ -2244,7 +2254,7 @@ function validatePlanTextWithSources(
           manifest,
         );
         const uncoveredRows = coverage.uncovered_data_row_evidence_ids
-          .filter(id => !receivedSamplingEvidenceIds.has(id) && !nonItemEvidence.has(id));
+          .filter(id => !receivedSamplingEvidenceIds.has(id) && !receivedFieldEvidenceIds.has(id) && !nonItemEvidence.has(id));
         if (coverage.data_row_evidence_ids.length === 0 || uncoveredRows.length > 0) {
           issues.push({
             code: "reference_placeholder_table_leaf_missing",
@@ -2261,6 +2271,7 @@ function validatePlanTextWithSources(
         const materializedEvidenceIds = new Set([
           ...plan.acceptance_items.flatMap(item => item.evidence_ids),
           ...receivedSamplingEvidenceIds,
+          ...receivedFieldEvidenceIds,
         ]);
         const uncoveredEvidenceIds = resolution.target_evidence_ids.filter((evidenceId) => !materializedEvidenceIds.has(evidenceId)
           && !nonItemEvidence.has(evidenceId));

@@ -1,4 +1,5 @@
 import { preflightContinuationPrompt } from "./acceptance-prompt-suite.js";
+import { sourceDocumentSessionNote } from "./source-document-context.js";
 import { installSelectorSessionContractBoundary, selectorSessionContractContext } from "./selector-session-contract.js";
 import { targetLengthContinuationPrompt, targetCompletedContinuationPrompt, discoveryStartupPrompt, hierarchyStartupPrompt, referenceStartupPrompt, LEGACY_PLAN_PROTOCOL } from "./acceptance-prompt-suite.js";
 import { LOSSLESS_REPRESENTATION_EQUIVALENCE_RULE as prompt_LOSSLESS_REPRESENTATION_EQUIVALENCE_RULE, LOSSLESS_BRANCH_ALTERNATIVES as prompt_LOSSLESS_BRANCH_ALTERNATIVES, SYSTEM_PROMPT as prompt_SYSTEM_PROMPT, TARGET_SELECTOR_SYSTEM_PROMPT as prompt_TARGET_SELECTOR_SYSTEM_PROMPT, targetRepairPrompt as prompt_targetRepairPrompt, targetSelectorStagePrompt as prompt_targetSelectorStagePrompt, targetSelectorStartupPrompt as prompt_targetSelectorStartupPrompt, DISCOVERY_SELECTOR_TRANSACTION_GUIDANCE as prompt_DISCOVERY_SELECTOR_TRANSACTION_GUIDANCE, DISCOVERY_SYSTEM_PROMPT as prompt_DISCOVERY_SYSTEM_PROMPT, DISCOVERY_REVIEW_SYSTEM_PROMPT as prompt_DISCOVERY_REVIEW_SYSTEM_PROMPT, COVERAGE_REVIEW_SYSTEM_PROMPT as prompt_COVERAGE_REVIEW_SYSTEM_PROMPT, COVERAGE_FINALIZATION_SYSTEM_PROMPT as prompt_COVERAGE_FINALIZATION_SYSTEM_PROMPT, HIERARCHY_CONFIRM_SYSTEM_PROMPT as prompt_HIERARCHY_CONFIRM_SYSTEM_PROMPT, HIERARCHY_SYSTEM_PROMPT as prompt_HIERARCHY_SYSTEM_PROMPT, HIERARCHY_REVIEW_SYSTEM_PROMPT as prompt_HIERARCHY_REVIEW_SYSTEM_PROMPT, DISCOVERY_CONTINUATION_PROMPT as prompt_DISCOVERY_CONTINUATION_PROMPT } from "./acceptance-prompt-suite.js";
@@ -23,7 +24,8 @@ import { Type } from "typebox";
 import { createCatalogOutputStream } from "./catalog-output-stream.js";
 import { constrainedContextSettings, prepareConstrainedContext } from './constrained-context.js';
 import { isModelStreamProtectionError, ModelStreamProgressGuard, createStreamRecoveryRunner, type StreamToolContract } from "./model-stream-progress.js";
-import { ModelSourceHandles, SOURCE_HANDLE_INSTRUCTION, SOURCE_HANDLE_SESSION_ENTRY, sourceHandleSessionFileMatches, sourceHandleSessionMatches } from "./model-source-handles.js";
+import { ModelSourceHandles, SOURCE_HANDLE_BOUND_CONTRACT, SOURCE_HANDLE_INSTRUCTION, SOURCE_HANDLE_SESSION_ENTRY, sourceHandleSessionFileMatches, sourceHandleSessionMatches } from "./model-source-handles.js";
+import { selectorAuthorFactsFingerprint } from "./selector-blocker-progress.js";
 import { PiSessionTelemetry, withPiSessionTelemetry } from "./session-telemetry.js";
 import { readPdfLayoutCache, verifiedPdfLayoutProfile, writePdfLayoutCache } from "./pdf-layout-cache.js";
 import { DISCOVERY_SCOPE_SEMANTICS_GUIDANCE } from "./discovery-semantic-guidance.js";
@@ -448,8 +450,11 @@ export interface DurablePromptSnapshot {
   last_valid_fingerprint: string;
   issue_fingerprint?: string;
   selector_stage?: string;
-  blocking_issues?: Array<{ identity: string; fingerprint: string }> | undefined;
-  repair_work_issues?: Array<{ identity: string; fingerprint: string }> | undefined;
+  blocking_issues?: Array<{ identity: string; fingerprint: string; assessed?: boolean }> | undefined;
+  repair_work_issues?: Array<{ identity: string; fingerprint: string; assessed?: boolean }> | undefined;
+  authoring_work_identity?: string;
+  author_facts_fingerprint?: string;
+  table_structure_progress?: { fingerprint: string; confirmed_keys: string[] };
 }
 
 type SelectorPreflightHandoff = {
@@ -613,8 +618,8 @@ export class SelectorCompletedPreflightHandoff {
     this.fullReceiptVisibleInCurrentSession = false;
     if (details.terminal === true) return;
     // Tool details retain canonical source IDs; the model sees the encoded text
-    // content. Carry its short handles into the next prompt so they can be used
-    // with the same source_handle_scope as subsequent tool receipts.
+    // content. Carry its short handles into the next prompt within the same
+    // program-bound tool session; the model never supplies the scope UUID.
     const visibleReceipt = Array.isArray(result?.content)
       ? result.content.map((block) => {
         const text = eventRecord(block)?.text;
@@ -819,6 +824,7 @@ export interface TargetModelingPhaseBudgetDecision {
 
 const DURABLE_SELECTOR_WRITE_TOOLS = new Set([
   "stage_target_selector_draft",
+  "stage_reference_component_decisions",
   "advance_target_selector_stage",
   "commit_target_selector_draft",
 ]);
@@ -1695,7 +1701,7 @@ export async function runLengthContinuationLoop(options: {
   let lastBlockingObservation = "";
   const workingHashVisits = new Map<string, number>();
   const planStateKey = (snapshot: DurablePromptSnapshot) =>
-    `${snapshot.working_plan_sha256}|${snapshot.selector_stage ?? ""}|${snapshot.last_valid_fingerprint}`;
+    `${snapshot.author_facts_fingerprint ?? snapshot.working_plan_sha256}|${snapshot.selector_stage ?? ""}|${snapshot.last_valid_fingerprint}|${snapshot.table_structure_progress?.fingerprint ?? ""}`;
 
   while (true) {
     options.signal?.throwIfAborted();
@@ -1771,10 +1777,27 @@ export async function runLengthContinuationLoop(options: {
     }
     const blockingProgress = await options.observeBlockingProgress?.(before, after);
     if (blockingProgress) lastBlockingObservation = JSON.stringify({ checkpoint: after.checkpoint, blockers: after.blocking_issues, repair_work: after.repair_work_issues });
-    const durableProgress = blockingProgress?.progress ?? after.checkpoint !== before.checkpoint;
+    const tableProgress = Boolean(after.table_structure_progress?.fingerprint
+      && after.table_structure_progress.fingerprint !== (before.table_structure_progress?.fingerprint ?? "")
+      && (before.table_structure_progress?.confirmed_keys ?? []).every(key => after.table_structure_progress!.confirmed_keys.includes(key)));
+    // Old stage probes can remain unassessed while the author completes new
+    // source decisions. Closing the actual assigned advisory work is progress;
+    // changing unrelated records or explanations leaves that identity intact.
+    const assessedWork = [...before.blocking_issues ?? [], ...after.blocking_issues ?? [],
+      ...before.repair_work_issues ?? [], ...after.repair_work_issues ?? []].some(row => row.assessed !== false);
+    const authoringProgress = !assessedWork && Boolean(before.authoring_work_identity
+      && after.authoring_work_identity !== undefined && after.authoring_work_identity !== before.authoring_work_identity);
+    const factsChanged = Boolean(before.author_facts_fingerprint && after.author_facts_fingerprint
+      && before.author_facts_fingerprint !== after.author_facts_fingerprint);
+    const authorFactsProgress = !assessedWork && factsChanged;
+    const fallbackProgress = before.author_facts_fingerprint && after.author_facts_fingerprint
+      ? factsChanged || before.selector_stage !== after.selector_stage || before.last_valid_fingerprint !== after.last_valid_fingerprint
+      : after.checkpoint !== before.checkpoint;
+    const durableProgress = tableProgress || authoringProgress || authorFactsProgress || (blockingProgress?.progress ?? fallbackProgress);
     const repeatedIssue = !blockingProgress && !lengthLimited && Boolean(after.issue_fingerprint)
       && after.issue_fingerprint === before.issue_fingerprint
       && after.working_plan_sha256 === before.working_plan_sha256
+      && after.table_structure_progress?.fingerprint === before.table_structure_progress?.fingerprint
       && after.selector_stage === before.selector_stage
       && after.last_valid_fingerprint === before.last_valid_fingerprint;
     repeatedCompletedIssueRounds = repeatedIssue ? repeatedCompletedIssueRounds + 1 : 0;
@@ -1786,6 +1809,9 @@ export async function runLengthContinuationLoop(options: {
     const continuationEvent = {
       continuation: lengthLimited ? lengthContinuations : completionContinuations,
       durable_progress: durableProgress,
+      table_structure_progress: tableProgress,
+      authoring_work_progress: authoringProgress,
+      author_facts_progress: authorFactsProgress,
       consecutive_without_progress: consecutiveWithoutProgress,
       before,
       after,
@@ -1823,7 +1849,7 @@ export async function runLengthContinuationLoop(options: {
         completion_continuations: completionContinuations,
       };
     }
-    if (!blockingProgress && durableProgress && hashVisits >= repeatedHashLimit) {
+    if ((!blockingProgress || authoringProgress || authorFactsProgress) && durableProgress && hashVisits >= repeatedHashLimit) {
       return {
         outcome,
         error: lengthLimited
@@ -2277,14 +2303,14 @@ export async function runLivePi(
   }
   const sourceHandles = await ModelSourceHandles.open(workspace.root);
   const sourceHandleSessionMismatch = persistedState.agent_runtime.kind === "pi-sdk"
-    && !await sourceHandleSessionFileMatches(persistedState.agent_runtime.session_file,sourceHandles.scope);
+    && !await sourceHandleSessionFileMatches(persistedState.agent_runtime.session_file,sourceHandles.scope,SOURCE_HANDLE_BOUND_CONTRACT);
   const forceFreshRepairSession = requiresFreshProviderSession(currentRepair);
   const interruptedToolCallSession = resume
     && persistedState.agent_runtime.kind === "pi-sdk"
     && piSessionRequiresFreshStart(persistedState.agent_runtime.session_file);
   const forceFreshSession = forceFreshRepairSession || interruptedToolCallSession || sourceHandleSessionMismatch;
   currentRepair = forceFreshSession
-    ? await controller.beginFreshRepairSession(forceFreshRepairSession ? "repair_restart" : "mechanical")
+    ? await controller.beginFreshRepairSession(forceFreshRepairSession ? "repair_restart" : interruptedToolCallSession ? "mechanical" : "protocol_migration")
     : currentRepair;
   if (interruptedToolCallSession) {
     await workspace.appendEvent("pi_interrupted_tool_call_session_retired", {
@@ -2303,7 +2329,7 @@ export async function runLivePi(
   const targetModelingBudget = decisionMode ? new TargetModelingPhaseBudget() : undefined;
 
 
-  const systemPrompt = `${decisionMode ? TARGET_SELECTOR_SYSTEM_PROMPT : SYSTEM_PROMPT}\n\n${SOURCE_HANDLE_INSTRUCTION}\n当前 source_handle_scope： ${sourceHandles.scope}.`;
+  const systemPrompt = `${decisionMode ? TARGET_SELECTOR_SYSTEM_PROMPT : SYSTEM_PROMPT}\n\n${SOURCE_HANDLE_INSTRUCTION}`;
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspace.root,
     agentDir: localAgentDir,
@@ -2315,11 +2341,16 @@ export async function runLivePi(
     systemPrompt,
   });
   await resourceLoader.reload();
-  const sessionManager = resume && !forceFreshSession
+  let sessionManager = resume && !forceFreshSession
     ? SessionManager.continueRecent(workspace.root, workspace.piSessionDirectory)
     : SessionManager.create(workspace.root, workspace.piSessionDirectory);
-  if (!sourceHandleSessionMatches(sessionManager.getEntries(),sourceHandles.scope)) sessionManager.appendCustomEntry(SOURCE_HANDLE_SESSION_ENTRY,{scope:sourceHandles.scope});
-  const sourceHandleTools = sourceHandles.wrapTools(createPiTools(controller));
+  if (resume && !forceFreshSession && !sourceHandleSessionMatches(sessionManager.getEntries(),sourceHandles.scope,SOURCE_HANDLE_BOUND_CONTRACT)) {
+    sessionManager = SessionManager.create(workspace.root, workspace.piSessionDirectory);
+    currentRepair = await controller.beginFreshRepairSession("protocol_migration");
+    await workspace.appendEvent("pi_source_handle_session_restarted", { reason: "Selected provider history has a different source-handle scope or tool contract; canonical checkpoint retained." });
+  }
+  if (!sourceHandleSessionMatches(sessionManager.getEntries(),sourceHandles.scope,SOURCE_HANDLE_BOUND_CONTRACT)) sessionManager.appendCustomEntry(SOURCE_HANDLE_SESSION_ENTRY,{scope:sourceHandles.scope,tool_contract:SOURCE_HANDLE_BOUND_CONTRACT});
+  const sourceHandleTools = await sourceHandles.wrapSessionTools(createPiTools(controller),sessionManager);
   const targetTools = decisionMode && targetModelingBudget
     ? withTargetModelingPhaseBudget(
          sourceHandleTools,
@@ -2470,9 +2501,10 @@ export async function runLivePi(
   try {
     const repairPrompt = (repair: typeof currentRepair) => targetRepairPrompt(repair, decisionMode);
     const selectorStartup = await sourceHandles.encode(controller.selectorStartupContext()) as ReturnType<ToolController["selectorStartupContext"]>;
-    const repairWork = decisionMode ? await sourceHandles.encode(await controller.selectorRepairWork()) as Awaited<ReturnType<ToolController["selectorRepairWork"]>> : undefined;
+    const repairWork = decisionMode ? await sourceHandles.encode(await controller.selectorExecutionWork()) as Awaited<ReturnType<ToolController["selectorExecutionWork"]>> : undefined;
     const initialPromptBase = decisionMode
         ? targetSelectorStartupPrompt({
+          scope_handoff: await sourceHandles.encode(await controller.selectorScopeHandoff()),
           job_id: workspace.jobId,
           target_id: workspace.targetId,
           recovering_coverage_failure: recoveringCoverageFailure
@@ -2517,8 +2549,9 @@ export async function runLivePi(
       : "";
     const discoveryContext = decisionMode ? await controller.discoveryContextPage() : undefined;
     const discoveryContextNote = discoveryContext?.status === "available" && Number(discoveryContext.total) > 0
-      ? `<discovery_context_candidates>\n${JSON.stringify(await sourceHandles.encode({ ...discoveryContext, source_handle_scope: sourceHandles.scope }))}\n</discovery_context_candidates>` : "";
-    const initialPrompt = [initialPromptBase, stagePrompt, externalSourceNote, feedbackNote, repairPrompt(currentRepair), recoveredPreflightNote, discoveryContextNote]
+      ? `<discovery_context_candidates>\n${JSON.stringify(await sourceHandles.encode(discoveryContext))}\n</discovery_context_candidates>` : "";
+    const sourceDocumentNote = sourceDocumentSessionNote(controller.evidence.source, controller.sourcePdfDisplayName);
+    const initialPrompt = [initialPromptBase, sourceDocumentNote, stagePrompt, externalSourceNote, feedbackNote, repairPrompt(currentRepair), recoveredPreflightNote, discoveryContextNote]
       .filter(Boolean)
       .join("\n\n");
     const continuationPrompt = async () => {
@@ -2530,14 +2563,12 @@ export async function runLivePi(
     };
     const completedContinuationPrompt = async () => {
       const repair = await controller.repairStatus();
-      const work = decisionMode ? await controller.selectorRepairWork() : undefined;
       if (!decisionMode) return ["继续存量工作计划至当前协议的终态；保留已保存记录及计数。", repairPrompt(repair)].filter(Boolean).join("\n\n");
-      const note = work && !selectorPreflightHandoff.hasCurrentWriteFailure() ? ""
-        : selectorPreflightHandoff.continuationNote(selectorDraftFingerprintFromSource(await readFile(workspace.workingSelectorPath, "utf8")), true);
+      const { work, state: executionState, ...nextStep } = await controller.selectorExecutionStep();
       return targetCompletedContinuationPrompt({ stage: controller.selectorProviderPolicy().stage,
-        ...(work && !note ? { current_work: await sourceHandles.encode(work) } : {}),
-        ...(note ? { preflight_note: note } : {}),
-        ...(!work ? { blocking_summary: await controller.selectorBlockingSummary() } : {}),
+        scope_handoff: await sourceHandles.encode(await controller.selectorScopeHandoff()),
+        next_step: await sourceHandles.encode({ execution_state: executionState, ...nextStep }),
+        ...(work ? { current_work: await sourceHandles.encode(work) } : {}),
       });
     };
     const recoverStream = createStreamRecoveryRunner({
@@ -2581,6 +2612,7 @@ export async function runLivePi(
           readFile(decisionMode ? workspace.workingSelectorPath : workspace.workingPlanPath, "utf8"),
         ]);
         const workingPlanSha256 = sha256Text(workingPlan);
+        const executionWork = decisionMode ? await controller.selectorExecutionWork() : undefined;
         const issueFingerprint = state.repair?.active_cluster?.issue_fingerprint
           || state.selector_protocol?.last_issue_fingerprint || "";
         const checkpoint = sha256Text(JSON.stringify({
@@ -2597,7 +2629,11 @@ export async function runLivePi(
           issue_fingerprint: issueFingerprint,
           ...(state.selector_stage ? { selector_stage: state.selector_stage } : {}),
           ...(decisionMode ? { blocking_issues: await controller.selectorBlockingIssues(),
-            repair_work_issues: await controller.selectorRepairWorkSnapshot() } : {}),
+            author_facts_fingerprint: selectorAuthorFactsFingerprint(migrateTargetSelectorPlan(strictJsonParse(workingPlan))),
+            repair_work_issues: await controller.selectorRepairWorkSnapshot(),
+            authoring_work_identity: executionWork && "advisory_only" in executionWork && executionWork.advisory_only
+              ? executionWork.identity : "",
+            table_structure_progress: await controller.selectorTableProgress() } : {}),
         };
       },
       shouldContinueAfterCompleted: async () => {
@@ -2809,7 +2845,7 @@ export async function runLiveConstrainedSession(
   );
   const sourceHandles = options.sourceHandles === false ? undefined : await ModelSourceHandles.open(workspace.root);
   const systemPrompt = sourceHandles
-    ? `${options.systemPrompt}\n\n${SOURCE_HANDLE_INSTRUCTION}\n当前 source_handle_scope： ${sourceHandles.scope}.`
+    ? `${options.systemPrompt}\n\n${SOURCE_HANDLE_INSTRUCTION}`
     : options.systemPrompt;
   const telemetry = new PiSessionTelemetry(options.telemetryPhase ?? options.modelStage, systemPrompt);
   const resourceLoader = new DefaultResourceLoader({
@@ -2827,13 +2863,13 @@ export async function runLiveConstrainedSession(
   let sessionManager = resume
     ? SessionManager.continueRecent(workspace.root, options.sessionDirectory)
     : SessionManager.create(workspace.root, options.sessionDirectory);
-  if (resume && sourceHandles && !sourceHandleSessionMatches(sessionManager.getEntries(),sourceHandles.scope)) {
+  if (resume && sourceHandles && !sourceHandleSessionMatches(sessionManager.getEntries(),sourceHandles.scope,SOURCE_HANDLE_BOUND_CONTRACT)) {
     sessionManager = SessionManager.create(workspace.root, options.sessionDirectory);
     await workspace.appendEvent("pi_source_handle_session_restarted",{source_handle_scope:sourceHandles.scope,reason:"Provider history belongs to a different or legacy source-handle scope; canonical workfiles remain authoritative."});
   }
-  if (sourceHandles && !sourceHandleSessionMatches(sessionManager.getEntries(),sourceHandles.scope)) sessionManager.appendCustomEntry(SOURCE_HANDLE_SESSION_ENTRY,{scope:sourceHandles.scope});
+  if (sourceHandles && !sourceHandleSessionMatches(sessionManager.getEntries(),sourceHandles.scope,SOURCE_HANDLE_BOUND_CONTRACT)) sessionManager.appendCustomEntry(SOURCE_HANDLE_SESSION_ENTRY,{scope:sourceHandles.scope,tool_contract:SOURCE_HANDLE_BOUND_CONTRACT});
   const customTools = withToolExecutionTimeout(
-    withPiSessionTelemetry(sourceHandles ? sourceHandles.wrapTools(options.customTools) : options.customTools, telemetry),
+    withPiSessionTelemetry(sourceHandles ? await sourceHandles.wrapSessionTools(options.customTools,sessionManager) : options.customTools, telemetry),
     LOCAL_TOOL_TIMEOUT_MS, COOPERATIVE_LOCAL_TOOL_TIMEOUT_NAMES, options.toolTimeouts,
   );
   const contextPolicy = options.maxContextTokens === undefined ? undefined : constrainedContextSettings(model, options.maxContextTokens);

@@ -6,6 +6,7 @@ import { materializeCoverageSpanBindings } from "../src/coverage-review.js";
 import { documentReferenceTargetReadIdentity } from "../src/document-reference.js";
 import {
   readReferenceCatalog,
+  referenceCatalogDeliveryWork,
   referenceAnalysisIssues,
   referenceCatalogPending,
 } from "../src/reference-analysis.js";
@@ -54,6 +55,81 @@ function fixture(firstText?: string, count = 25) {
 }
 
 describe("reference catalog row citation handles", () => {
+  test.each(["虚构温控箱", "虚构隔声板"])("%s locates a late diagnostic source without claiming a read or a business decision", async subject => {
+    const records = Array.from({ length: 73 }, (_, index) => ({
+      evidence_id: `evidence:${sha256Text(`${subject}-${index}`)}`, kind: "paragraph", role: "context",
+      locator: `line:${index + 1}`, text: `${subject}条件记录${index + 1}。`,
+    }));
+    const { workspace, manifest, targetKey, state } = fixtureFromRecords(records, "neutral-source-route");
+    await readReferenceCatalog(workspace, manifest, targetKey);
+    const before = structuredClone(state);
+    const route = await readReferenceCatalog(workspace, manifest, targetKey, { evidence_ids: [records[70]!.evidence_id] } as any) as any;
+    expect(route).toMatchObject({ ok: true, metadata_only: true, source_routes: [{ evidence_id: records[70]!.evidence_id,
+      entry_id: "seg:3", row_index: 22 }], next_tool: "read_reference_facts",
+      next_tool_arguments: { target_key: targetKey, entry_ids: ["seg:3"], row_cursor: 22, row_offset: 0 } });
+    expect(JSON.stringify(route)).not.toContain(records[70]!.text);
+    expect(state).toEqual(before);
+    const opened = await readReferenceCatalog(workspace, manifest, targetKey, route.next_tool_arguments) as any;
+    expect(opened.entries[0].rows[0]).toEqual([22, records[70]!.text]);
+    expect(opened.resolved_rows[0]).toMatchObject({ evidence_id: records[70]!.evidence_id, span_id: expect.stringMatching(/^span:/u) });
+  });
+
+  test("source navigation rejects a foreign identity and mixed read/write requests without changing read history", async () => {
+    const { workspace, manifest, targetKey, records, state } = fixture();
+    await readReferenceCatalog(workspace, manifest, targetKey);
+    const before = structuredClone(state);
+    const foreign = await readReferenceCatalog(workspace, manifest, targetKey, { evidence_ids: ["evidence:foreign"] } as any);
+    expect(foreign).toMatchObject({ ok: false, error: "reference_catalog_evidence_not_found", writable_paths: ["/evidence_ids"] });
+    const mixed = await readReferenceCatalog(workspace, manifest, targetKey, {
+      evidence_ids: [records[0]!.evidence_id], entry_ids: ["seg:1"], skip_rest: { reason: "不能借导航改变处置" },
+    } as any);
+    expect(mixed).toMatchObject({ ok: false, error: "reference_catalog_navigation_arguments_conflict" });
+    expect(state).toEqual(before);
+  });
+
+  test.each(["虚构传感盒检验", "虚构织带接头检验"])("%s keeps requested delivery separate from complete reading history", async subject => {
+    const records = Array.from({ length: 65 }, (_, index) => ({
+      evidence_id: `evidence:${sha256Text(`${subject}-${index}`)}`,
+      kind: "paragraph", role: "context", locator: `line:${index + 1}`, text: `${subject}记录${index + 1}。`,
+    }));
+    const { workspace, manifest, targetKey, state, rebuildWorkspace } = fixtureFromRecords(records, "neutral-delivery");
+    // A prior provider session already saw everything. Keep those receipts intact.
+    for (const id of ["seg:1", "seg:2", "seg:3"]) await readReferenceCatalog(workspace, manifest, targetKey, { entry_ids: [id] });
+    const history = structuredClone(state.reference_catalog_dispositions![`target:${targetKey}`]!.opened_ranges);
+    const result = await readReferenceCatalog(rebuildWorkspace(), manifest, targetKey, { entry_ids: ["seg:1", "seg:2", "seg:3"] });
+    expect(result).toMatchObject({ disposition: { pending: 0 }, disposition_scope: "cumulative_read_history_not_current_delivery",
+      deferred_entry_ids: ["seg:2", "seg:3"], deferred_reason: "per_call_row_limit_24",
+      delivery: { returned_rows: 24, pending_count: 2, complete: false },
+      required_action: "complete_requested_reference_delivery",
+      next_tool_arguments: { target_key: targetKey, entry_ids: ["seg:2"], row_cursor: 0, row_offset: 0 } });
+    expect(state.reference_catalog_dispositions![`target:${targetKey}`]!.opened_ranges).toEqual(history);
+    const delivered: string[] = [];
+    let next = result;
+    while (!((next.delivery as any).complete)) {
+      const work = referenceCatalogDeliveryWork(await rebuildWorkspace().readState())!;
+      expect(work.diagnostic_read.arguments).toEqual(next.next_tool_arguments);
+      const args = work.diagnostic_read.arguments;
+      next = await readReferenceCatalog(rebuildWorkspace(), manifest, args.target_key, args);
+      delivered.push(...(next.entries as any[]).flatMap(entry => entry.rows.map((row: any) => row[1])));
+      expect(delivered.length).toBeLessThanOrEqual(41);
+    }
+    expect(delivered).toEqual(records.slice(24).map(row => row.text));
+    expect(referenceCatalogDeliveryWork(state)).toBeUndefined();
+    expect(state.reference_catalog_dispositions![`target:${targetKey}`]!.opened_ranges).toEqual(history);
+  });
+
+  test("byte-limited delivery returns a durable executable character cursor", async () => {
+    const { workspace, rebuildWorkspace, manifest, targetKey, state } = fixture("中🙂".repeat(12000), 1);
+    let output = await readReferenceCatalog(workspace, manifest, targetKey, { entry_ids: ["seg:1"] });
+    expect(output).toMatchObject({ delivery: { complete: false }, next_tool_arguments: { row_cursor: 0, row_offset: expect.any(Number) } });
+    const pieces = [(output.entries as any[])[0].rows[0][1]];
+    while (output.next_tool_arguments) {
+      output = await readReferenceCatalog(rebuildWorkspace(), manifest, targetKey, output.next_tool_arguments as any);
+      pieces.push((output.entries as any[])[0].rows[0][1]);
+    }
+    expect(pieces.join("")).toBe("中🙂".repeat(12000));
+    expect(referenceCatalogDeliveryWork(state)).toBeUndefined();
+  });
   test.each(["target", "coverage"] as const)("%s returns verified row spans without expanding catalog or body responses", async (phase) => {
     const { workspace, manifest, targetKey, registry, records } = fixture();
     const catalog = await readReferenceCatalog(workspace, manifest, targetKey, {}, phase);

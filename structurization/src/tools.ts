@@ -1,4 +1,5 @@
 import { replaceAcceptanceToolText } from "./acceptance-tool-text.js";
+import { modelSourceDocumentContext } from "./source-document-context.js";
 import { renderFeedback } from "./acceptance-feedback-text.js";
 import { readDiscoveryContextNotes } from "./discovery-context.js";
 import { PROMPT_SUITE_VERSION, TARGET_SELECTOR_PROTOCOLS, LEGACY_PLAN_PROTOCOL } from "./acceptance-prompt-suite.js";
@@ -20,12 +21,14 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import { catchToolReject, toolReject } from "./actionable-error.js";
 import { REFERENCE_CORRECTION_FIELDS } from "./reference-correction.js";
 import { wholeExternalReferenceScopeReview } from "./external-reference-scope.js";
-import { selectorPatchReceipt, selectorWorkNextStep } from "./selector-feedback.js";
-import { projectReferenceFieldSelections, type ReferenceFieldSelectionResult } from "./reference-field-selection.js";
+import { compactSourceReadRoutes, prioritizeWorkRoutes, selectorPatchReceipt, selectorWorkAction, selectorWorkNextStep } from "./selector-feedback.js";
+import { COMPONENT_PLAN_INPUT, componentPlanView, componentStepAccounting, componentStepDiagnosticScope, readComponentPlans, saveComponentPlan, type ComponentPlanInput } from "./component-work-plan.js";
+import { projectReferenceFieldSelections, referenceFieldSelectionCapability, type ReferenceFieldSelectionResult } from "./reference-field-selection.js";
+import { REFERENCE_COMPONENT_EDIT_INPUT, editReferenceComponents, type ReferenceComponentEditInput } from "./reference-component-edit.js";
 import { FIELD_SOURCE_BINDING_GUIDANCE, INVESTIGATION_KEY_SOURCE_GUIDANCE, ITEM_NAME_PATH_GUIDANCE, SELECTOR_FIELD_ROLE_GUIDANCE, SELECTOR_PATCH_GUIDANCE, SELECTOR_SAMPLING_GUIDANCE, SELECTOR_PENDING_SAMPLING_REPAIR_GUIDANCE, SOURCE_READING_GUIDANCE, selectorDeliveryInvestigationHints } from "./acceptance-delivery-contract.js";
 import { selectorDeliveryPreview } from "./selector-delivery-preview.js";
 import { pageDiagnosticResponse, readDiagnosticArrayPage } from "./selector-diagnostic-array-pages.js";
-import { selectorIssueProbes, selectorBlockerObservations, selectorBlockerImproved, observeSelectorBlockers,
+import { selectorIssueProbes, selectorAuthorFactsFingerprint, selectorBlockerObservations, selectorBlockerImproved, observeSelectorBlockers,
   type SelectorIssueProbe, type SelectorBlockerObservation, type SelectorBlockerHistory } from "./selector-blocker-progress.js";
 import { selectSelectorRepairFocus, type SelectorRepairFocus } from "./selector-repair-work.js";
 import { sourceBoundaryNeighbors } from "./source-boundary-review.js";
@@ -47,6 +50,7 @@ import type {
 import {
   PLAN_SCHEMA_VERSION,
   referenceOccurrenceLiteralSpanIds,
+  referenceOccurrenceTargetLocator,
   referenceOccurrenceLiterals,
   referenceOccurrenceOriginEvidenceIds,
   referenceOccurrenceOriginSpanIds,
@@ -207,6 +211,7 @@ import {
   initialTableStructurePlan,
   pendingComplexTableStructureIssues,
   tableStructureFingerprint,
+  tableStructureProgress,
   validateTableStructurePlan,
   type TableStructureDecision,
   type TableStructurePlan,
@@ -236,6 +241,7 @@ import {
   readInlineReferenceEvidencePage,
   readAnalyzedReferenceCatalog,
   referenceAnalysisIssues,
+  referenceCatalogDeliveryWork,
   referenceAnalysisPolicy,
 } from "./reference-analysis.js";
 import type { CatalogRuleAsk } from "./reference-catalog-discovery.js";
@@ -410,6 +416,7 @@ const SELECTOR_TOOL_OMITTED_DETAIL_ARRAYS = new Set([
 const SELECTOR_NAVIGATION_TOOLS = new Set([
   "read_target_selector_issues",
   "save_target_investigation",
+  "save_target_component_plan",
   "list_evidence_resources", "list_global_document_resources", "search_global_document_resources", "open_global_document_resource",
   "open_adjacent_document_resource", "register_external_dependency", "resolve_document_reference",
   "read_document_reference_evidence", "read_reference_facts", "open_evidence", "search_evidence",
@@ -420,6 +427,7 @@ const INHERITED_SELECTOR_READ_GATED_TOOLS = new Set([
   "locate_evidence_span",
   "batch_locate_evidence_spans",
   "stage_target_selector_draft",
+  "stage_reference_component_decisions",
   "stage_table_structure",
   "advance_target_selector_stage",
 ]);
@@ -1051,7 +1059,7 @@ function currentReferenceOriginScopeIssue<T>(issue: T): T {
     ? how : `${how} ${REFERENCE_ORIGIN_CONTEXT_SCOPE_GUIDANCE}`.trim() };
 }
 
-const SELECTOR_STAGE_DIAGNOSTIC_CONTRACT_VERSION = "selector-stage-diagnostics/v25";
+const SELECTOR_STAGE_DIAGNOSTIC_CONTRACT_VERSION = "selector-stage-diagnostics/v27";
 
 function canRegisterReferenceLiteral(state: RevisionState): boolean {
   return state.status === "working" && state.validation_attempts === 0
@@ -1448,7 +1456,17 @@ type EvidenceAccessMetadata =
       target_key: string;
     };
 
-const RESOURCE_ACCESS_INSTRUCTION = "读取资源时，把该行 tool_arguments 原样作为参数调用 read_tool；使用短句柄时，同时复制当前回条的 source_handle_scope 到参数顶层。evidence_id、target_key、表号和行号不能互换，不自行构造 ID。direct 打开当前来源；inline_reference 按引用目标分页读取；isolated_reference 先取得隔离目录，再按目录返回的条目读取。目录只提供导航，不代表已读或业务适用。";
+const RESOURCE_ACCESS_INSTRUCTION = "读取资源时，把该行 tool_arguments 原样作为参数调用 read_tool；直接使用当前回条的短句柄，来源所属目标由程序绑定。evidence_id、target_key、表号和行号不能互换，不自行构造 ID。direct 打开当前来源；inline_reference 按引用目标分页读取；isolated_reference 先取得隔离目录，再按目录返回的条目读取。目录只提供导航，不代表已读或业务适用。";
+
+/** Directory capability follows registered identity and access, never clause-like text. */
+function evidenceContextDirectory(record: EvidenceRecord, access: EvidenceAccessMetadata) {
+  if (access.access_mode !== "direct") return { available: false, unavailable_reasons: ["reference_access_required"] };
+  const reasons = [record.evidence_scope !== "primary" ? "outside_primary_index" : "",
+    !record.clause_id ? "no_registered_clause_id" : ""].filter(Boolean);
+  return reasons.length ? { available: false, unavailable_reasons: reasons }
+    : { available: true, unavailable_reasons: [], basis: "exact_primary_clause_id",
+      tool: "list_evidence_resources", tool_arguments: { context_for_evidence_id: record.evidence_id, cursor: 0, limit: 24 } };
+}
 
 function evidenceResource(
   record: EvidenceRecord,
@@ -1464,6 +1482,7 @@ function evidenceResource(
       evidence_id: record.evidence_id,
       ...access,
       tool_arguments: toolArguments,
+      context_directory: evidenceContextDirectory(record, access),
     };
   }
   const textFormat = tableEvidenceTextFormat(record);
@@ -1507,6 +1526,7 @@ function evidenceResource(
     ...(clauseId ? { clause_id: clauseId } : {}),
     ...(access ?? {}),
     ...(toolArguments ? { tool_arguments: toolArguments } : {}),
+    ...(access ? { context_directory: evidenceContextDirectory(record, access) } : {}),
   };
 }
 
@@ -1914,6 +1934,8 @@ function referenceToolImplementationFingerprint(): Promise<string> {
 export class ToolController {
   externalSourceWorkflow?: ExternalSourceWorkflow;
   userFeedback?: string;
+  /** Host display label only; never persisted into frozen evidence. */
+  sourcePdfDisplayName?: string;
   private modelReviewObservations = new Map<string, unknown>();
   private submittedPreflight: { draft_fingerprint: string; evidence_fingerprint: string; result: TargetSelectorPreflight } | undefined;
   /**
@@ -1922,6 +1944,7 @@ export class ToolController {
    */
   referenceCatalogRuleAsk?: CatalogRuleAsk;
   private readonly openedEvidenceIds: Set<string>;
+  private readonly currentDeliveryWindows = new Set<string>();
   private globalDocumentEvidence?: DocumentEvidence;
   private globalDocumentHeadingNavigation?: ReturnType<typeof createDocumentHeadingNavigation>;
   private tableHeadingLookup?: ReturnType<typeof createTableHeadingLookup>;
@@ -2069,7 +2092,7 @@ export class ToolController {
   }
 
   selectorProviderPolicy(): { stage: TargetSelectorStage; allowed_tools: string[] } {
-    const common = ["get_target_context", "get_target_selector_contract", "list_sampling_rules", ...SELECTOR_NAVIGATION_TOOLS];
+    const common = ["get_target_context", "get_target_selector_contract", "list_sampling_rules", "stage_reference_component_decisions", ...SELECTOR_NAVIGATION_TOOLS];
     const byStage: Record<TargetSelectorStage, string[]> = {
       primary: ["commit_target_selector_draft", "list_sampling_rules", "list_table_fragments", "list_reference_occurrences", "get_target_context", "get_target_selector_contract", "read_target_selectors", "stage_target_selector_draft", "stage_table_structure", "advance_target_selector_stage", "report_target_blocker", ...common],
       sampling: ["commit_target_selector_draft", "list_sampling_rules", "list_table_fragments", "list_reference_occurrences", "get_target_context", "read_target_selectors", "stage_target_selector_draft", "stage_table_structure", "advance_target_selector_stage", "report_target_blocker", ...common],
@@ -2384,7 +2407,7 @@ export class ToolController {
     this.structuralIssues(coalesceSelectorIssueDiagnostics(routed));
   }
 
-  private async selectorCompilerIssues(selectors: TargetSelectorPlan, includeFieldRoleReview = true): Promise<unknown[]> {
+  private async selectorCompilerIssues(selectors: TargetSelectorPlan, includeFieldRoleReview = true, includeStrictBindings = false): Promise<unknown[]> {
     const [registry, state] = await Promise.all([
       this.workspace.readSourceSpanRegistry(),
       this.workspace.readState(),
@@ -2401,8 +2424,9 @@ export class ToolController {
     const eligibleTableEvidenceIds = this.eligibleTableEvidenceIds(access.accessByEvidenceId);
     let compilerIssues: unknown[] = [];
     let compilerReviewIssues: TargetSelectorCompileError["issues"] = [];
+    let compiled: PersistedSemanticSourcePlan | undefined;
     try {
-      compileTargetSelectors(selectors, registry, this.evidence, {
+      compiled = compileTargetSelectors(selectors, registry, this.evidence, {
         acceptedSourceLanguageReviews: (protocol.language_review_markers ?? []).flatMap((marker) => (
           marker.item_key ? [{ item_key: marker.item_key, name: marker.original_name }] : []
         )),
@@ -2421,6 +2445,18 @@ export class ToolController {
       );
     }
     await this.collectCompilerModelReview(compilerReviewIssues);
+    // Recheck declared relationships against the current draft. A successful
+    // local save must not hide strict binding errors from an earlier check.
+    // This is a readonly diagnostic projection: no preflight, counters, source
+    // projection or validation receipt is produced here.
+    if (includeStrictBindings && compiled) {
+      const strict = validatePlanText(serializeCompiledWorkingPlan(compiled), this.evidence);
+      const referenceIssues = strict.issues.filter(issue => /^\/(reference_resolutions|semantic_references)(\/|$)/u.test(issue.path ?? ""));
+      compilerIssues.push(...await this.routeSelectorCompilerEvidenceReads(classifyStrictSelectorIssues(
+        selectors, compiled, registry, referenceIssues, this.evidence,
+        { canRegisterDocumentReferences: canRegisterReferenceLiteral(state) },
+      )));
+    }
     const fieldRoleIssues = (includeFieldRoleReview ? await this.targetFieldRoleIssues(selectors, registry) : [])
       .map((issue) => ({ ...(issue as Record<string, unknown>), owner: "selector_input_error" }));
     return coalesceSelectorIssueDiagnostics(this.structuralIssues([...compilerIssues, ...fieldRoleIssues]));
@@ -2475,20 +2511,13 @@ export class ToolController {
             ? { evidence_id: evidenceId, cursor: 0 }
             : access.access_mode === "inline_reference"
               ? { target_key: access.target_key, cursor: 0, limit: 24 }
-              : { target_key: access.target_key };
+              : { target_key: access.target_key, ...(referenceUnaccounted ? { evidence_ids: [evidenceId] } : {}) };
           return [{
             evidence_id: evidenceId,
             ...access,
             next_tool: access.read_tool,
             tool_arguments: toolArguments,
-            ...(compilerUnhandled && evidence.evidence_scope === "primary" && evidence.clause_id
-              && access.access_mode === "direct" ? {
-                context_directory: {
-                  tool: "list_evidence_resources",
-                  tool_arguments: { context_for_evidence_id: evidenceId, cursor: 0, limit: 24 },
-                  basis: "exact_primary_clause_id",
-                },
-              } : {}),
+            context_directory: evidenceContextDirectory(evidence, access),
           }];
         });
         if (sourceAccess.length === 0) return issue;
@@ -2598,7 +2627,7 @@ export class ToolController {
           ...record,
           details: {
             ...details,
-            ...(sourceUnhandled || originRelation ? {
+            ...(sourceUnhandled || originRelation || (referenceUnaccounted && !details.scope_review) ? {
               next_tool: nextSourceRead?.read_tool ?? (needsReferenceRoute ? "list_reference_occurrences" : "read_target_selectors"),
               next_tool_arguments: nextSourceRead?.tool_arguments ?? (needsReferenceRoute
                 ? { cursor: 0, limit: 100 } : sourceUnhandled && allSourcesRead
@@ -2649,7 +2678,9 @@ export class ToolController {
                     "若有 source_access，严格按 source_access 中每项的 read_tool 和 tool_arguments 读取对应来源，",
                     "仅 unread_evidence_ids 需按 source_access 中对应项的 read_tool 和 tool_arguments 读取；already_read_evidence_ids 可按需复读，",
                   )
-              : sourceUnhandled || referenceUnaccounted ? details.how_to_pass
+              : referenceUnaccounted ? details.scope_review ? details.how_to_pass
+                : "先读取当前 reference，再按 source_access 的精确工具参数读取点名来源。isolated 的 evidence_ids 只定位目录行，跟随其 next_tool_arguments 取正文和 span；同次已返回的点名行可复用，无须返回整份目录开头。由模型判断实际适用性：适用内容绑定到真实 items、其实际选用的 sampling_rules 或真实字段的内联引用；不适用组件用已读 span 显式登记 not_applicable、item_keys=[] 和原文依据。组织范围可绑定 lots[].scope_span_ids，其他非项目上下文可按 source_dispositions 契约处置。用现有作者工具只保存相关可写记录，保留其他决定；不得猜造 span、笼统排除未读内容或删除正确项目来消错。"
+              : sourceUnhandled ? details.how_to_pass
               : originRelation
                 ? `先逐项按 source_access 的 read_tool 和 tool_arguments 核对 origin_evidence_ids 的原文；isolated_reference 必须通过 read_reference_facts 读取目录及选定条目，不得调用 open_evidence。${originHowToPass}`
                 : "先用 read_target_selectors 读取当前 reference 和 actual.item_keys 中存在的 items，再按 occurrence_id 核对引用。然后严格按 source_access 逐项读取：每项只调用其 read_tool，并原样使用 tool_arguments；direct 使用 open_evidence，inline_reference 使用 read_document_reference_evidence，isolated_reference 不要调用 open_evidence，只能使用 read_reference_facts。由模型依据已读原文判断：item_keys 点名错误时只改接收者；点名正确时才补足该真实 item 的 provenance。最后只保存 writable_paths 中列出的 references/items 路径并重试验证；不得虚构 item、span 或业务归属。",
@@ -2737,6 +2768,7 @@ export class ToolController {
   private async validateStagedSelectorRecords(
     selectors: TargetSelectorPlan,
     touchedRoots: readonly string[],
+    previous?: TargetSelectorPlan,
   ): Promise<Record<string, unknown>> {
     const compilerIssues = await this.selectorCompilerIssues(selectors);
     const localCompilerIssues = compilerIssues
@@ -2762,6 +2794,12 @@ export class ToolController {
     const deferredIssues = compilerIssues.filter(issue => !localCompilerIssues.includes(issue))
       .map(issue => actionableSelectorIssue(issue, selectors));
     const blockerAssessment = await this.saveLocalSelectorBlockerAssessment(localIssues, selectors);
+    const recordFacts = (plan: TargetSelectorPlan, collection: string, key: string) => selectorAuthorFactsFingerprint({
+      [collection]: ((plan as any)[collection] ?? []).filter((row: any) => row.key === key),
+    } as TargetSelectorPlan);
+    const priorityIds = previous ? selectorIssueProbes(selectorIssueToolDiagnostics(localIssues), selectors)
+      .filter(probe => probe.bindings.some(binding => recordFacts(previous, binding.collection, binding.key)
+        !== recordFacts(selectors, binding.collection, binding.key))).map(probe => probe.identity) : undefined;
     const navigation = (scope: string) => ({ tool: "get_target_context",
       arguments: { saved_diagnostic_scope: scope }, cursor_field: "saved_diagnostic_cursor" });
     await atomicWriteJson(join(this.workspace.root, "saved-selector-diagnostics.json"), {
@@ -2770,6 +2808,7 @@ export class ToolController {
       contract_version: SELECTOR_STAGE_DIAGNOSTIC_CONTRACT_VERSION,
       inputs_fingerprint: await this.stageDiagnosticInputsFingerprint(),
       touched_paths: touchedRoots, local_issues: localIssues, deferred_issues: deferredIssues,
+      ...(priorityIds ? { priority_issue_identities: priorityIds } : {}),
     });
     let page = selectorIssueToolPage(localIssues, SELECTOR_TOOL_ISSUE_PAGE_MAX_COUNT, 0, navigation("local"));
     let deferredPage = selectorIssueToolPage(deferredIssues, SELECTOR_TOOL_ISSUE_PAGE_MAX_COUNT, 0, navigation("deferred"));
@@ -3216,12 +3255,12 @@ export class ToolController {
    * scope mismatch) only advance the session serial.
    */
   async beginFreshRepairSession(
-    reason: "repair_restart" | "mechanical",
+    reason: "repair_restart" | "mechanical" | "protocol_migration",
   ): Promise<ReturnType<typeof repairStateOrDefault>> {
     return this.workspace.transactState((state) => {
       const repair = repairStateOrDefault(state.repair);
       repair.fresh_session_required = false;
-      repair.non_converging_rounds = 0;
+      if (reason !== "protocol_migration") repair.non_converging_rounds = 0;
       repair.session_epoch += 1;
       if (reason === "repair_restart") repair.repair_session_restarts += 1;
       state.repair = repair;
@@ -3403,7 +3442,11 @@ export class ToolController {
             const record = this.evidence.evidence.find((entry) => entry.evidence_id === candidate.evidence_id);
             if (!record) return candidate;
             const access = this.evidenceAccess(record, accessByEvidenceId);
-            if (access.access_mode !== "isolated_reference") return { ...candidate, ...access };
+            if (access.access_mode !== "isolated_reference") return { ...candidate, ...access,
+              evidence_scope: record.evidence_scope, registered_dependency: Boolean(record.registered_dependency),
+              registered_clause_id: record.clause_id ?? null,
+              tool_arguments: access.access_mode === "direct" ? { evidence_id: record.evidence_id, cursor: 0 }
+                : { target_key: access.target_key, cursor: 0 }, context_directory: evidenceContextDirectory(record, access) };
             return evidenceResource(record, access);
           });
           output = {
@@ -3487,7 +3530,7 @@ export class ToolController {
             navigation_candidate_count: this.evidence.scope.reference_candidates?.length ?? 0,
             next_navigation_candidate_cursor: navigationPage.next_cursor,
             next_cursor: page.next_cursor,
-            instruction: "这是已登记引用 occurrence 的紧凑、不可变清单。先按 raw_reference、origin_evidence_id/origin_span_ids 与 origin_fields 核对原引用文字、位置和字段，匹配同一 occurrence 后复用其 occurrence_id 和 target_key，不为取得读取编号重复解析同一引用。对 status=resolved 且有实际目标来源的行，analysis_mode=inline 时调用 read_document_reference_evidence，analysis_mode=isolated 时调用 read_reference_facts；首读只传该行实际 target_key，使用短句柄时同时复制当前 source_handle_scope 到参数顶层，后续按读取回条分页或选择隔离目录条目。未解析或已按 literal_only 处理的引用，不因存在 target_key 就获得正文读取权限，继续其现有解析或仅保留原引文流程。读到来源后，再路由到保留该来源证据的业务字段；同一 origin 的多个目标还必须逐组件填写 component_dispositions，引用闭合不等于语义分解完成。target_fingerprint 相同表示共享同一目标 inventory，只读一次，分别保留各 occurrence 的来源与接收决定。",
+            instruction: "这是已登记引用 occurrence 的紧凑、不可变清单。先按 raw_reference、origin_evidence_id/origin_span_ids 与 origin_fields 核对原引用文字、位置和字段，匹配同一 occurrence 后复用其 occurrence_id 和 target_key，不为取得读取编号重复解析同一引用。对 status=resolved 且有实际目标来源的行，analysis_mode=inline 时调用 read_document_reference_evidence，analysis_mode=isolated 时调用 read_reference_facts；首读只传该行实际 target_key，直接使用当前回条的短句柄，所属目标由程序绑定，后续按读取回条分页或选择隔离目录条目。未解析或已按 literal_only 处理的引用，不因存在 target_key 就获得正文读取权限，继续其现有解析或仅保留原引文流程。读到来源后，再路由到保留该来源证据的业务字段；同一 origin 的多个目标还必须逐组件填写 component_dispositions，引用闭合不等于语义分解完成。target_fingerprint 相同表示共享同一目标 inventory，只读一次，分别保留各 occurrence 的来源与接收决定。",
           };
           if (page.next_cursor === null) this.inheritedReferenceLedgerRead = true;
           }
@@ -3500,6 +3543,11 @@ export class ToolController {
           break;
         case "get_target_context":
           output = await this.targetContext(input);
+          {
+            const delivery = referenceCatalogDeliveryWork(await this.workspace.readState());
+            if (delivery) output = { ...output, current_work: delivery, ...selectorWorkNextStep(delivery),
+              instruction: delivery.instruction };
+          }
           break;
         case "save_target_investigation": {
           const ids = Array.isArray(input.evidence_ids) ? input.evidence_ids : [];
@@ -3542,6 +3590,9 @@ export class ToolController {
         }
         case "list_evidence_resources":
           output = await this.listEvidenceResources(input);
+          break;
+        case "save_target_component_plan":
+          output = await this.saveTargetComponentPlan(input);
           break;
         case "search_global_document_resources":
           output = await this.searchGlobalDocumentResources(String(input.query ?? ""));
@@ -3592,6 +3643,7 @@ export class ToolController {
             this.evidence,
             String(input.target_key ?? ""),
             {
+              evidence_ids: Array.isArray(input.evidence_ids) ? input.evidence_ids.map(String) : undefined,
               entry_ids: Array.isArray(input.entry_ids) ? input.entry_ids.map(String) : undefined,
             row_cursor: input.row_cursor as number | undefined, row_offset: input.row_offset as number | undefined, catalog_cursor: input.catalog_cursor as number | undefined,
               skip: Array.isArray(input.skip)
@@ -3772,6 +3824,10 @@ export class ToolController {
           output = { ...output, mutation_receipt: output.mutation_receipt ?? selectorPatchReceipt(input, output.ok === true ? "saved" : "not_applied") };
           if (output.ok === true) this.selectorBlockerRepairRequired = false;
           break;
+        case "stage_reference_component_decisions":
+          output = await this.stageReferenceComponentDecisions(input);
+          if (output.ok === true) this.selectorBlockerRepairRequired = false;
+          break;
         case "advance_target_selector_stage":
           output = await this.advanceTargetSelectorStage(String(input.next_stage ?? ""));
           break;
@@ -3840,6 +3896,20 @@ export class ToolController {
       }
       if (signal?.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
       output = await this.withTableHeadingContext(name, output);
+      if (this.usesSelectorCompiler && output.ok && !output.terminal
+        && ["open_evidence", "batch_open_evidence", "read_table_rows"].includes(name)) {
+        const work = await this.selectorExecutionWork();
+        if (work && "advisory_only" in work && work.advisory_only
+          && "source_delivery" in work && work.source_delivery?.current_execution_complete) {
+          output = { ...output, current_work: work };
+          // Paging the rest of a table remains available, but the source just
+          // requested is now ready for an author's decision, not another read.
+          if (output.next_tool) {
+            output.supporting_read = { tool: output.next_tool, arguments: output.next_tool_arguments ?? {} };
+            delete output.next_tool; delete output.next_tool_arguments;
+          }
+        }
+      }
       if (["commit_target_selector_draft", "advance_target_selector_stage"].includes(name)
         && Array.isArray(output.selector_issues)) {
         const selectors = migrateTargetSelectorPlan(strictJsonParse(await readFile(this.workspace.workingSelectorPath, "utf8")));
@@ -3873,10 +3943,11 @@ export class ToolController {
           observations: [...this.modelReviewObservations.values()],
           instruction: renderFeedback({ kind: "model_review" }) } };
       }
-      output = await pageDiagnosticResponse(output, async () => ({
+      output = await pageDiagnosticResponse(compactSourceReadRoutes(output), async () => ({
         root: this.workspace.root, job_id: this.workspace.jobId, target_id: this.workspace.targetId,
         revision: this.workspace.revision, inputs_fingerprint: await this.stageDiagnosticInputsFingerprint(),
       }));
+      output = prioritizeWorkRoutes(output) as ToolResponse;
       await this.workspace.appendEvent("tool_execution_end", {
         tool_call_id: toolCallId,
         tool_name: name,
@@ -4567,6 +4638,7 @@ export class ToolController {
     });
     const affected = issues.filter((issue) => issue.path === `/tables/${savedIndex}`
       || issue.path.startsWith(`/tables/${savedIndex}/`));
+    const nextWork = affected.length ? undefined : await this.selectorExecutionWork();
     return {
       ok: true,
       draft_status: affected.length ? "saved_structure_validation_failed" : "saved_structure_validation_passed",
@@ -4574,6 +4646,7 @@ export class ToolController {
       removed_table_keys: removeTableKeys,
       validation: { ok: affected.length === 0, issues: affected },
       pending_complex_tables: pendingComplexTableStructureIssues(publicNextPlan, this.evidence),
+      ...(nextWork ? { current_work: nextWork, ...selectorWorkNextStep(nextWork) } : {}),
       budget_consumed: false,
       instruction: affected.length
         ? "结构决定已保存但未通过。按 actual/how_to_pass 修正；无法唯一判断就保持 review，不得静默 seal。"
@@ -4761,6 +4834,19 @@ export class ToolController {
     ));
   }
 
+  /** Rebuilt from this workspace on every provider start, never from a prior
+   * model summary or a test runner's userFeedback. Does not mark sources read. */
+  async selectorScopeHandoff(): Promise<Record<string, unknown>> {
+    const { accessByEvidenceId } = await this.evidenceAccessSnapshot(false);
+    return {
+      source_sha256: this.evidence.source.sha256,
+      target_scope: await this.publicTargetScope(accessByEvidenceId,
+        this.inaccessibleTableFragmentEvidenceIds(accessByEvidenceId)),
+      frozen_semantic_basis: await this.readFrozenTargetSemanticBasis() ?? null,
+      instruction: "这是当前target已确认的完整执行范围。业务对象和边界按冻结范围依据理解，selected_heading及已有lot/item名称只作定位，不能据此缩小范围。primary_source_ranges包含全部直接正文范围，end_exclusive_line不包含；范围外已登记引用按原读取权限调查，是否适用、条件、例外及接收项目仍由模型判断。此交接不表示正文已读或业务已完成，不改变范围、已存决定、计数或预算。缺少正文时沿当前来源工具补读。",
+    };
+  }
+
   private async publicTargetScope(
     accessByEvidenceId: ReadonlyMap<string, EvidenceAccessMetadata>,
     inaccessibleTableEvidenceIds: ReadonlySet<string>,
@@ -4874,7 +4960,7 @@ export class ToolController {
       : undefined;
     const response = {
       ok: true,
-      resource: evidenceResource(record),
+      resource: evidenceResource(record, this.evidenceAccess(record, await this.evidenceAccessIndex(false))),
       cursor: windowIndex,
       text_window: window,
       next_cursor: windowIndex + 1 < windows.length ? windowIndex + 1 : null,
@@ -4925,6 +5011,7 @@ export class ToolController {
     }
     const fullyOpened = new Set(updated.opened_evidence_ids ?? []);
     fullyOpened.forEach((evidenceId) => this.openedEvidenceIds.add(evidenceId));
+    for (const { record, window } of units) this.currentDeliveryWindows.add(evidenceWindowKey(record.evidence_id, window));
     return fullyOpened;
   }
 
@@ -4950,7 +5037,9 @@ export class ToolController {
   private async currentFieldDiagnosticInputs() {
     const snapshotPath = join(this.workspace.root, "selector-diagnostics.json");
     const snapshot = await pathExists(snapshotPath) ? await readJson<any>(snapshotPath) : undefined;
-    return sha256Json({ schema: "selector-field-diagnostics/v2",
+    // Feedback migration only: refresh readonly field diagnostics, not a formal
+    // validation checkpoint, author counters, or the compiled acceptance result.
+    return sha256Json({ schema: "selector-field-diagnostics/v5",
       inputs: await this.currentAuthorDiagnosticInputs(),
       preflight: snapshot ? { contract_version: snapshot.contract_version,
         author_inputs_fingerprint: snapshot.author_inputs_fingerprint, issues: snapshot.issues } : undefined });
@@ -4974,7 +5063,7 @@ export class ToolController {
       // Reuse only a check bound to these exact inputs; do not run another
       // preflight or replay stale actuals after an edit/read/scope change.
       const issues = coalesceSelectorIssueDiagnostics([
-        ...await this.selectorCompilerIssues(selectors, false), ...checkedIssues,
+        ...await this.selectorCompilerIssues(selectors, false, true), ...checkedIssues,
       ]).map(issue => actionableSelectorIssue(issue, selectors));
       cached = { inputs, issues, observations: [...this.modelReviewObservations.values()] };
       await atomicWriteJson(file, cached);
@@ -4984,6 +5073,153 @@ export class ToolController {
   }
 
   /** A durable scheduling checkpoint, separate from author content and budgets. */
+  async selectorTableProgress() {
+    return tableStructureProgress(await this.projectAccessibleTableStructurePlan(await this.readTableStructurePlan()),
+      this.evidence, await this.workspace.readSourceSpanRegistry());
+  }
+
+  /** Navigation for unfinished content, not a verdict that a new item exists. */
+  private async pendingSelectorAuthoringWork() {
+    if (this.selectorStage === "coverage_repair" || (await this.workspace.readState()).last_valid_fingerprint) return undefined;
+    const selectors = migrateTargetSelectorPlanForAuthoring(strictJsonParse(await readFile(this.workspace.workingSelectorPath, "utf8"))).plan;
+    const access = await this.evidenceAccessIndex(true);
+    const hidden = this.inaccessibleTableFragmentEvidenceIds(access);
+    const evidence = this.evidence.evidence.filter(record => !hidden.has(record.evidence_id)
+      && this.evidenceAccess(record, access).access_mode === "direct");
+    const eligible = new Set(evidence.map(record => record.evidence_id));
+    const registry = await this.workspace.readSourceSpanRegistry();
+    const structure = await this.projectAccessibleTableStructurePlan(await this.readTableStructurePlan());
+    const expansion = tableExpansionState(this.evidence, registry, selectors, structure, eligible);
+    const primaryIds = new Set(evidence.filter(record => record.evidence_scope === "primary").map(record => record.evidence_id));
+    const pendingTable = structure.tables.find(table => table.status !== "confirmed"
+      && table.fragment_ids.some(id => this.evidence.table_fragments.find(fragment => fragment.fragment_id === id)
+        ?.row_evidence_ids.some(evidenceId => primaryIds.has(evidenceId))));
+    const pendingRow = expansion.work_packages.flatMap(work => work.rows).find(row => row.disposition === "pending");
+    const table = pendingTable ?? (pendingRow && structure.tables.find(table => table.fragment_ids.some(id =>
+      this.evidence.table_fragments.find(fragment => fragment.fragment_id === id)?.row_evidence_ids.includes(pendingRow.evidence_id))));
+    if (table) {
+      const rowIds = unique(table.fragment_ids.flatMap(id => this.evidence.table_fragments.find(fragment => fragment.fragment_id === id)?.row_evidence_ids ?? []));
+      const read = pendingTable
+        ? { tool: "read_table_summary", arguments: { table_key: table.table_key } }
+        : { tool: "read_table_rows", arguments: { table_key: table.table_key,
+          cursor: Math.max(0, rowIds.indexOf(pendingRow!.evidence_id)), limit: 4 } };
+      const record = pendingRow && this.evidence.evidence.find(record => record.evidence_id === pendingRow.evidence_id);
+      const delivery = record && this.sourceDecisionDelivery(record);
+      return { identity: sha256Json({ source: this.evidence.source.sha256, table: table.table_key,
+        work: pendingTable ? "structure" : pendingRow!.evidence_id }),
+        code: pendingTable ? "author_table_structure_pending" : "author_table_rows_pending", path: pendingTable ? "/table" : "/items",
+        writable_paths: pendingTable ? ["stage_table_structure.table"] : ["/items", "/sampling_rules", "/source_dispositions"],
+        advisory_only: true, budget_consumed: false, full_stage_check_performed: false,
+        ...(!pendingTable ? delivery : {}),
+        table_key: table.table_key, ...(pendingTable ? {} : { evidence_ids: [pendingRow!.evidence_id], row_ids: [pendingRow!.row_id] }),
+        diagnostic_read: read, record_read: undefined, save_tool: pendingTable ? "stage_table_structure" : "stage_target_selector_draft",
+        instruction: pendingTable
+          ? "当前表结构尚未确认。读取已保存结构和对应原文行，按实际表头、数据、注及续表关系保存结构决定；保存结构不等于保存验收项目。"
+          : "当前原文表行尚无作者处置。按指定分页读取该行及上位条件；已实际交付时继续模型判断和保存，仅有具体缺口才补读。可补齐既有项、同属性分支、独立项、实际选用的共享抽样规则或有据的上下文/不适用处置；新增真实记录不要求先读取不存在的key，不机械一行一项。这里只安排待判断来源，不决定业务答案，也不构成新的阶段门槛。" };
+    }
+    const coverage = selectorDispositionCoverage({ selectors, evidence, spans: registry.spans.filter(span => eligible.has(span.evidence_id)) });
+    const source = evidence.find(record => record.evidence_scope === "primary" && coverage.uncovered_required_ids.includes(record.evidence_id));
+    if (!source) return undefined;
+    return { identity: sha256Json({ source: this.evidence.source.sha256, evidence_id: source.evidence_id }),
+      code: "author_source_review_pending", path: "/source_dispositions", advisory_only: true,
+      budget_consumed: false, full_stage_check_performed: false, evidence_ids: [source.evidence_id],
+      ...this.sourceDecisionDelivery(source),
+      diagnostic_read: { tool: "open_evidence", arguments: { evidence_id: source.evidence_id, cursor: 0 } },
+      record_read: { tool: "read_target_selectors", arguments: { collection: "source_dispositions", evidence_ids: [source.evidence_id] } },
+      save_tool: "stage_target_selector_draft",
+      instruction: "该来源尚未被作者绑定或显式处置，不等于缺少一个验收项目。核对现有处置和原文，再自行判断补齐既有项、分支/抽样/引用接收、新建真实项，或保存有据的上下文/不适用处置。已有足够依据的决定及时保存；不以重读或待办总结代替保存，不把真实判据降为背景来消错。此导航不新增业务门槛，也不证明语义完整。" };
+  }
+
+  private sourceDecisionDelivery(record: EvidenceRecord) {
+    const delivered = splitTextWindows(record.text).every(window => this.currentDeliveryWindows.has(evidenceWindowKey(record.evidence_id, window)));
+    return { source_delivery: { current_execution_complete: delivered, historical_read_alone_is_not_delivery: true },
+      ...(delivered ? { next_action: { kind: "author_source_decision_and_save", decision_owner: "model",
+        save_tool: "stage_target_selector_draft", writable_collections: ["items", "sampling_rules", "source_dispositions", "residual_source_dispositions"],
+        instruction: "当前点名正文已在本次执行实际返回。由模型确认用途并保存已经有据的决定；可新建真实记录，不先读取不存在的key。若具体上下文仍缺才按支持入口补读，不以再次读取或待办总结代替保存。" } } : {}) };
+  }
+
+  async selectorExecutionWork() {
+    return referenceCatalogDeliveryWork(await this.workspace.readState())
+      ?? await this.selectorRepairWork() ?? await this.pendingSelectorAuthoringWork();
+  }
+
+  /** One current action for save receipts and normal-response continuation.
+   * Reading diagnostics here neither approves business decisions nor performs
+   * a formal stage check. The author and its existing budgets remain in charge. */
+  async selectorExecutionStep() {
+    const state = await this.workspace.readState();
+    if (state.last_valid_fingerprint) return {
+      state: "validated" as const, work: undefined,
+      next_tool: "seal_validated_plan", next_tool_arguments: { fingerprint: state.last_valid_fingerprint },
+    };
+    const work = await this.selectorExecutionWork();
+    if (work) return { state: "authoring" as const, work,
+      ...selectorWorkNextStep(work), next_action: selectorWorkAction(work) };
+    const stageIndex = SELECTOR_STAGE_ORDER.indexOf(this.selectorStage);
+    const nextStage = stageIndex < 0 ? undefined : SELECTOR_STAGE_ORDER[stageIndex + 1];
+    const selectors = migrateTargetSelectorPlan(strictJsonParse(await readFile(this.workspace.workingSelectorPath, "utf8")));
+    return { state: "ready_for_check" as const, work: undefined,
+      ...(nextStage
+        ? { next_tool: "advance_target_selector_stage", next_tool_arguments: { next_stage: nextStage }, expected_next_stage: nextStage }
+        : { next_tool: "commit_target_selector_draft", next_tool_arguments: { draft_fingerprint: targetSelectorFingerprint(selectors) } }),
+    };
+  }
+
+  private async saveTargetComponentPlan(input: Record<string, unknown>): Promise<ToolResponse> {
+    if (!Check(COMPONENT_PLAN_INPUT, input)) return {
+      ok: false, error: "component_plan_shape_invalid", actual: input,
+      expected: "按save_target_component_plan当前参数Schema提交步骤；只检查格式，不选择业务答案。",
+      writable_paths: ["/occurrence_id", "/active_step_key", "/steps"],
+      instruction: "未保存，旧计划不变。每个步骤保留key、span_ids、question、status、next_step和outcome；部分更新按key合并，不删除其他步骤。",
+    };
+    const plan = input as ComponentPlanInput;
+    const unknownOccurrence = !this.evidence.reference_occurrences.some(row => row.occurrence_id === plan.occurrence_id);
+    const registry = await this.workspace.readSourceSpanRegistry();
+    const knownSpans = new Set(registry.spans.map(span => span.span_id));
+    const unknownSpans = unique(plan.steps.flatMap(step => step.span_ids).filter(id => !knownSpans.has(id)));
+    if (unknownOccurrence || unknownSpans.length) return {
+      ok: false, error: "component_plan_source_unknown", actual: { occurrence_id: plan.occurrence_id, unknown_span_ids: unknownSpans },
+      expected: "引用发生处和已点名span必须属于当前目标的登记表；未读组件可先用span_ids=[]计划针对性读取，不猜ID。",
+      writable_paths: ["/occurrence_id", "/steps"], next_tool: "list_reference_occurrences", next_tool_arguments: { cursor: 0, limit: 20 },
+      instruction: "未保存。按当前目录及正文读取回条取得真实身份，不需要为保存计划把所有未读正文先打开；程序不判断这些来源的适用性。",
+    };
+    const saved = await saveComponentPlan(this.workspace.root, this.evidence.source.sha256, plan);
+    const receipt = saved.ok ? { ok: true } : saved;
+    return { ...receipt, updated_step_keys: plan.steps.map(step => step.key), selector_mutation: false, budget_consumed: false, business_completion_proven: false,
+      ...(saved.ok ? { component_plan: componentPlanView(saved.plan, plan.occurrence_id), selector_repair_work: await this.selectorRepairWork() } : {}),
+      instruction: saved.ok
+        ? "模型计划已保存，未修改验收项目、引用接收、原文或校验计数。由你从active_step.next_step选择必要工具，执行并保存真实作者决定后更新计划；不要仅保存计划或重复目录就收尾。计划的done是模型声明，不能代替来源接收或封存。"
+        : "未保存，旧计划不变。按actual/expected修正计划的结构；问题与下一步仍由模型选择。",
+    };
+  }
+
+  private async stageReferenceComponentDecisions(input: Record<string, unknown>): Promise<ToolResponse> {
+    if (!Check(REFERENCE_COMPONENT_EDIT_INPUT, input)) return {
+      ok: false, error: "reference_component_edit_shape_invalid", actual: input,
+      expected: "按当前Schema提供draft_fingerprint、reference_key和非空component_dispositions；每项保留component_span_ids、decision、item_keys、reason。",
+      writable_paths: ["/draft_fingerprint", "/reference_key", "/component_dispositions"],
+      durable_mutation: false, budget_consumed: false, next_tool: "stage_reference_component_decisions",
+      instruction: "本次未保存。只修结构参数，不必重交整条引用；本工具保留未点名组件、接收关系及其他字段。",
+    };
+    const edit = input as ReferenceComponentEditInput;
+    const current = migrateTargetSelectorPlanForAuthoring(strictJsonParse(await readFile(this.workspace.workingSelectorPath, "utf8"))).plan;
+    const fingerprint = targetSelectorFingerprint(current);
+    if (edit.draft_fingerprint !== fingerprint) return {
+      ok: false, error: "selector_draft_fingerprint_mismatch", durable_mutation: false, budget_consumed: false,
+      actual: { supplied: edit.draft_fingerprint, current: fingerprint }, expected: { draft_fingerprint: fingerprint },
+      writable_paths: ["/draft_fingerprint"], next_tool: "read_target_selectors",
+      next_tool_arguments: { collection: "references", key: edit.reference_key },
+      instruction: "本次未保存。读取当前引用并核对本次组件选择，携带当前draft_fingerprint重试；不让旧决定覆盖后续修改。",
+    };
+    const projected = editReferenceComponents(current, this.evidence, await this.workspace.readSourceSpanRegistry(), edit);
+    if (!projected.ok) return projected;
+    const patch = { draft_fingerprint: fingerprint, draft: { references: [projected.reference] } };
+    const saved = await this.stageTargetSelectorDraft(patch);
+    return { ...saved, mutation_receipt: selectorPatchReceipt(patch, saved.ok === true ? "saved" : "not_applied"),
+      component_update: { reference_key: edit.reference_key, touched_span_ids: projected.touched_span_ids,
+        other_components_preserved: true, destinations_preserved: true, model_selects_business_values: true } };
+  }
+
   async selectorRepairWork() {
     const state = await this.workspace.readState();
     if (state.last_valid_fingerprint) return undefined;
@@ -4992,23 +5228,108 @@ export class ToolController {
     const { inputs, cached } = await this.currentFieldDiagnostics();
     const file = join(this.workspace.root, "selector-repair-work.json");
     const saved = await readJson<{ source_sha256: string; focus?: SelectorRepairFocus; convergence?: SelectorBlockerHistory }>(file).catch(() => undefined);
-    const selection = selectSelectorRepairFocus(selectorIssueToolDiagnostics(cached.issues), selectors,
-      saved?.source_sha256 === this.evidence.source.sha256 ? saved.focus : undefined,
-      issue => this.selectorStage !== "primary" || selectorIssueCode(issue) !== "selector_sampling_decision_pending");
+    const previous = saved?.source_sha256 === this.evidence.source.sha256 ? saved.focus : undefined;
+    const eligible = (issue: unknown) => this.selectorStage !== "primary" || selectorIssueCode(issue) !== "selector_sampling_decision_pending";
+    const diagnostics = selectorIssueToolDiagnostics(cached.issues);
+    const local = await readJson<any>(join(this.workspace.root, "saved-selector-diagnostics.json")).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+      return undefined;
+    });
+    // A failed write is the immediate dependency of the parent work. Prioritize
+    // its still-current field errors without deleting the parent's observations
+    // or resetting their stagnation history. Old receipts supply no current facts.
+    const localCurrent = local?.schema_version === "saved-selector-diagnostics/v1"
+      && local.job_id === this.workspace.jobId && local.target_id === this.workspace.targetId
+      && local.revision === this.workspace.revision && local.contract_version === SELECTOR_STAGE_DIAGNOSTIC_CONTRACT_VERSION
+      && local.inputs_fingerprint === await this.stageDiagnosticInputsFingerprint();
+    const localIds = new Set(localCurrent ? local.priority_issue_identities
+      ?? selectorIssueProbes(selectorIssueToolDiagnostics(local.local_issues ?? []), selectors).map(row => row.identity) : []);
+    const selection = selectSelectorRepairFocus(diagnostics, selectors, previous,
+      issue => eligible(issue) && selectorIssueProbes([issue], selectors).some(probe => localIds.has(probe.identity)))
+      ?? selectSelectorRepairFocus(diagnostics, selectors, previous, eligible);
     const checkpoint = { schema_version: "selector-repair-work/v1", source_sha256: this.evidence.source.sha256,
       focus: selection?.focus,
       ...(saved?.source_sha256 === this.evidence.source.sha256 && saved.convergence ? { convergence: saved.convergence } : {}) };
     if (JSON.stringify(saved) !== JSON.stringify(checkpoint)) await atomicWriteJson(file, checkpoint);
     if (!selection) return undefined;
-    return { ...selection.focus, diagnostic: selection.diagnostic,
+    const record = selection.diagnostic.record;
+    const occurrenceId = record?.occurrence_id ?? (record?.collection === "references"
+      ? selectors.references.find(reference => reference.key === record.key)?.occurrence_id : undefined);
+    const occurrence = this.evidence.reference_occurrences.find(row => row.occurrence_id === occurrenceId);
+    const referencePermission = occurrence?.status === "resolved" && occurrence.target_evidence_ids.length ? {
+      occurrence_id: occurrence.occurrence_id, source_role: "registered_reference", primary_range_expansion_required: false,
+      target_evidence_count: occurrence.target_evidence_ids.length, applicability_decision_owner: "model",
+      instruction: "primary_source_ranges只限定直接正文；这个已解析引用的登记正文可按现有来源访问、字段及接收合同用于本target，不需要将外章改成primary。来源许可不证明适用性、全部采用或已完成；具体接收、条件与例外仍由模型判断。",
+    } : undefined;
+    const componentPlan = typeof occurrenceId === "string" ? componentPlanView(
+      (await readComponentPlans(this.workspace.root, this.evidence.source.sha256)).plans[occurrenceId], occurrenceId) : undefined;
+    // The model's component investigation must not override a precise field
+    // diagnostic such as import authorization or origin linkage.
+    const missingReceipt = selection.diagnostic.code === "selector_registered_reference_receipt_missing";
+    const componentWork = missingReceipt
+      || /^\/(component_dispositions|target_span_ids)(\/|$)/u.test(selection.diagnostic.record?.field ?? "");
+    const activeStep = componentWork ? componentPlan?.active_step : undefined;
+    const authorReference = selectors.references.find(reference => reference.occurrence_id === occurrenceId);
+    const accounting = activeStep ? componentStepAccounting(activeStep, authorReference) : undefined;
+    const diagnosticScope = activeStep ? componentStepDiagnosticScope(activeStep,
+      selection.diagnostic.related_information?.evidence_ids ?? [], (await this.workspace.readSourceSpanRegistry()).spans) : undefined;
+    const outsideStep = selection.diagnostic.code === "selector_reference_component_dispositions_required"
+      && accounting && accounting.active_step_span_count > 0 && !accounting.undeclared_active_step_span_ids.length
+      && accounting.missing_or_duplicate_selected_span_ids.length > 0
+      && accounting.missing_or_duplicate_selected_span_ids.every(id => !activeStep!.span_ids.includes(id));
+    const capability = referenceFieldSelectionCapability(authorReference);
+    const work = compactSourceReadRoutes({ ...(activeStep ? { model_step: activeStep,
+      step_accounting: { ...accounting, ...diagnosticScope,
+        current_missing_selection_is_outside_active_step: Boolean(outsideStep || diagnosticScope?.current_diagnostic_outside_active_step) },
+      partial_save: { author_record: selection.focus.record_read?.arguments ?? record,
+        ...capability,
+        ...(missingReceipt && occurrence ? { reference_receipt_creation: {
+          collection: "references", operation: "upsert", occurrence_id: occurrence.occurrence_id,
+          anchor_span_ids: referenceOccurrenceLiteralSpanIds(occurrence), key_owner: "model", stageable_action: "review",
+          completion_proven: false,
+          instruction: "此 occurrence 尚无作者记录，不存在可回读的 reference key。模型选择自己的新 key，按完整记录合同保存已确认的组件及真实接收项；未决部分可先保持 action=review，不必先判断整章。此中间态仍会阻止完整验证和封存；不能把未决组件猜成不适用。",
+        } } : {}),
+        ...(authorReference ? { component_decisions: { tool: "stage_reference_component_decisions",
+          arguments: { reference_key: authorReference.key, draft_fingerprint: targetSelectorFingerprint(selectors) },
+          model_fills: ["component_dispositions"], preserves: ["unselected_components", "destinations", "other_reference_fields"] } } : {}),
+        save_tool: "stage_target_selector_draft", model_selects_business_values: true,
+        instruction: missingReceipt
+          ? "按reference_receipt_creation提供的身份，以stage_target_selector_draft保存模型命名的完整references记录及已经确认的真实items。当前没有reference key可回读，也没有组件局部更新入口；action=review可保留中间进度，保存后继续处理新回条，未决内容不因此通过。"
+          : "仅补改已确认的component_dispositions时，使用component_decisions中的局部保存入口，无须重交其他组件或接收关系。"
+          + (capability.write_mode === "full_records" ? "其他字段或接收关系仍要求完整记录模式：operation=upsert，draft.references及必要的draft.items；不要用reference_selections重试。" : "其他字段可依实际合同选择字段选择模式或完整记录模式。")
+          + "可以只保存当前步骤中已经判断清楚的组件，不要求先完成整章或把全部组件统一判为不适用。完整记录upsert仍须保留其他已存正确决定；未判断的组件保持未决。组件决定、适用条件及接收者均由模型填写，保存计划不代替该作者保存。" } } : {}),
+      ...(referencePermission ? { reference_source_permission: referencePermission } : {}),
+      ...selection.focus, diagnostic: selection.diagnostic,
+      ...(componentPlan ? { component_plan: activeStep ? componentPlan : { ...componentPlan, execution_priority: "supporting_navigation",
+        instruction: "模型计划原样保留。当前主待办是明确字段诊断，先按其actual、expected、可写路径及读取入口修复；不以执行旧组件步骤代替字段修复，也不自动标记计划完成。" } } : {}),
       diagnostic_read: { tool: "get_target_context", arguments: { field_diagnostic_cursor: selection.focus.diagnostic_cursor,
         field_diagnostic_fingerprint: inputs, field_diagnostic_detail_mode: "full" } },
       remaining_diagnostic_count: selection.remaining_diagnostic_count,
-      instruction: renderFeedback({ kind: "current_diagnostic", constraint: "先处理本待办及直接依赖，保存真实作者决定；仅调查、重读或改理由不关闭义务。当前诊断闭合后跟随最新回条中的下一待办；当前作者错误清空后才执行阶段检查或完整提交。" }) };
+      instruction: renderFeedback({ kind: "current_diagnostic", constraint: "先处理本待办及直接依赖，保存真实作者决定；仅调查、重读或改理由不关闭义务。当前诊断闭合后跟随最新回条中的下一待办；当前作者错误清空后才执行阶段检查或完整提交。" })
+        + (activeStep ? "\n整组来源尚未判断时，由你分组提出具体问题并用save_target_component_plan保存；已有模型计划从active_step续接，自行选择工具和适用决定，不因恢复而重复整章目录。计划不计业务完成。" : "") });
+    const action = selectorWorkAction(work);
+    return { ...(action ? { next_action: action } : {}), ...work };
+  }
+
+  private async pendingReferenceDeliveryResponse(): Promise<ToolResponse | undefined> {
+    const delivery = referenceCatalogDeliveryWork(await this.workspace.readState());
+    if (!delivery) return undefined;
+    return {
+      ok: false, terminal: false, error: delivery.code, issue_owner: "source_delivery",
+      budget_consumed: false, full_stage_check_performed: false, author_draft_mutation: false,
+      actual: { target_key: delivery.target_key, pending_delivery_count: delivery.pending_delivery_count },
+      expected: "deliver_explicitly_requested_source_before_stage_check",
+      current_work: delivery, ...selectorWorkNextStep(delivery),
+      writable_parameters: ["target_key", "entry_ids", "row_cursor", "row_offset"],
+      do_not_edit: "不可变原文、历史已读记录、检查点和预算；本回条不要求修改作者记录。",
+      instruction: delivery.instruction,
+    };
   }
 
   /** Navigation refusal only: do not spend a formal check on known author errors. */
   private async pendingSelectorRepairResponse(): Promise<ToolResponse | undefined> {
+    const delivery = await this.pendingReferenceDeliveryResponse();
+    if (delivery) return delivery;
     // Historical coverage transactions keep their own saved-review protocol.
     if (this.selectorStage === "coverage_repair") return undefined;
     const work = await this.selectorRepairWork();
@@ -5193,6 +5514,15 @@ export class ToolController {
   }
 
   private async targetContext(input: Record<string, unknown>): Promise<ToolResponse> {
+    if (input.component_plan_occurrence_id !== undefined) {
+      const id = String(input.component_plan_occurrence_id), cursor = Number(input.component_plan_cursor ?? 0);
+      if (!Number.isInteger(cursor) || cursor < 0) return { ok: false, error: "component_plan_cursor_invalid", actual: cursor,
+        expected: "非负整数", writable_paths: ["/component_plan_cursor"], next_tool: "get_target_context",
+        next_tool_arguments: { component_plan_occurrence_id: id, component_plan_cursor: 0 },
+        instruction: "按返回游标读取已保存计划，不需要重新扫描正文或重做业务判断。" };
+      const store = await readComponentPlans(this.workspace.root, this.evidence.source.sha256);
+      return { ok: true, component_plan: componentPlanView(store.plans[id], id, cursor, 4, true), budget_consumed: false };
+    }
     if (input.discovery_context_cursor !== undefined) return this.discoveryContextPage(input);
     if (input.field_diagnostic_cursor !== undefined) return this.currentFieldDiagnosticPage(input);
     if (input.diagnostic_detail_key !== undefined || input.diagnostic_detail_path !== undefined || input.diagnostic_detail_cursor !== undefined) {
@@ -5308,6 +5638,8 @@ export class ToolController {
       "open_global_document_resource", "open_adjacent_document_resource",
       "register_external_dependency", "resolve_document_reference",
     ].filter((name) => !this.inheritedSelectorReadRequired || !INHERITED_SELECTOR_READ_GATED_TOOLS.has(name));
+    const authoringWork = input.source_repair_cursor === undefined && !(await this.selectorRepairWork())
+      ? await this.pendingSelectorAuthoringWork() : undefined;
     if (this.returnedTargetContextPages.has(contextPageKey) && input.source_repair_cursor === undefined) {
       return {
         ok: true,
@@ -5316,6 +5648,7 @@ export class ToolController {
         selector_stage: this.selectorStage,
         selector_protocol: selectorProtocol,
         context_page_already_returned: true,
+        ...(authoringWork ? { selector_authoring_work: authoringWork, ...selectorWorkNextStep(authoringWork) } : {}),
         target_scope: await this.publicTargetScope(accessByEvidenceId, inaccessibleTableEvidenceIds),
         ...referenceToolRecovery,
         ...externalSourceContext,
@@ -5456,6 +5789,7 @@ export class ToolController {
     const output = {
       ok: true,
       schema_version: TARGET_SELECTOR_PLAN_SCHEMA_VERSION,
+      source_document: modelSourceDocumentContext(this.evidence.source, this.sourcePdfDisplayName),
       ...selectorStartup,
       selector_stage: this.selectorStage,
       ...(await pathExists(join(this.workspace.root, "selector-repair-work.json"))
@@ -5477,6 +5811,7 @@ export class ToolController {
             : "当前没有登记的表结构。",
       },
       current_table_work_packages: publicTableWorkPackages,
+      ...(authoringWork ? { selector_authoring_work: authoringWork, ...selectorWorkNextStep(authoringWork) } : {}),
       ...(handoff ? {checkpoint_handoff:{
         ...handoff,
         snapshot_status: sha256Text(selectorSource) === (handoff.proof as {selector_sha256?:string})?.selector_sha256
@@ -5572,15 +5907,46 @@ export class ToolController {
     const accessByEvidenceId = await this.evidenceAccessIndex(true);
     if (typeof input.context_for_evidence_id === "string" && input.context_for_evidence_id) {
       const source = this.evidence.evidence.find(record => record.evidence_id === input.context_for_evidence_id);
-      const access = source ? this.evidenceAccess(source, accessByEvidenceId) : undefined;
-      if (!source || source.evidence_scope !== "primary" || !source.clause_id || access?.access_mode !== "direct") {
-        const routed = access && access.access_mode !== "direct";
+      if (!source) {
+        const document = await this.readGlobalDocumentEvidence();
+        const resources = this.globalDocumentSourceResources(document, await this.isolatedGlobalDocumentRanges(document));
+        const resource = resources.find(row => row.atom_id === input.context_for_evidence_id);
+        const targetKeys = resource?.target_keys ?? [...new Set(resources.filter(row => row.parent_atom_id === input.context_for_evidence_id).flatMap(row => row.target_keys))];
+        if (targetKeys.length) return { ok: false, error: "evidence_context_directory_unavailable", budget_consumed: false,
+          context_directory: { available: false, unavailable_reasons: ["reference_access_required"] },
+          ...this.globalDocumentIsolationRoute(targetKeys),
+          ...(targetKeys.length === 1 ? { next_tool: "read_reference_facts", next_tool_arguments: { target_key: targetKeys[0] } }
+            : { next_tool: "list_reference_occurrences", next_tool_arguments: { cursor: 0, limit: 24 } }),
+          instruction: "该全文来源与隔离引用范围重叠，不提供同条目录或开放正文。按routed_references进入对应隔离目录，不从条号外观猜归属。" };
+        if (resource) return { ok: false, error: "evidence_context_directory_unavailable", budget_consumed: false,
+          actual: { evidence_id: input.context_for_evidence_id, registered_in_current_evidence: false, known_global_resource: true },
+          context_directory: { available: false, unavailable_reasons: ["not_registered_in_target"] },
+          source_access: { atom_id: resource.atom_id, access_mode: "direct", read_tool: "open_global_document_resource", tool_arguments: { atom_id: resource.atom_id } },
+          next_tool: "open_global_document_resource", next_tool_arguments: { atom_id: resource.atom_id },
+          instruction: "这是合法全文导航来源，尚未登记成当前target的evidence，不能列同条目录或直接定位业务span。需要正文时按精确入口读取；已有正文则可按原有登记流程自行判断用途，不要求为取得同条目录重读。不自动登记、不扩展范围、不猜条文。" };
+        return { ...this.unknownLocatorEvidence(input.context_for_evidence_id, "list_evidence_resources", "/context_for_evidence_id"),
+          ok: false, error: "evidence_context_directory_unavailable", context_directory: { available: false, unavailable_reasons: ["unknown_source_identity"] } };
+      }
+      const access = this.evidenceAccess(source, accessByEvidenceId);
+      const directory = evidenceContextDirectory(source, access);
+      if (!directory.available) {
+        const toolArguments = access.access_mode === "direct" ? { evidence_id: source.evidence_id, cursor: 0 }
+          : access.access_mode === "inline_reference" ? { target_key: access.target_key, cursor: 0 } : { target_key: access.target_key };
+        const delivered = access.access_mode === "direct" && this.sourceDecisionDelivery(source).source_delivery.current_execution_complete;
         return {
           ok: false, error: "evidence_context_directory_unavailable", budget_consumed: false,
-          actual: { evidence_id: input.context_for_evidence_id },
-          next_tool: routed ? access.read_tool : "list_evidence_resources",
-          next_tool_arguments: routed ? { target_key: access.target_key } : { cursor: 0, limit: 24 },
-          instruction: "同条上下文目录只适用于已有明确 clause_id 的直接主资料。此来源不满足该条件；按返回路由读取或浏览普通目录，不猜条款归属，不绕过隔离引用读取。",
+          actual: { evidence_id: source.evidence_id, registered_in_current_evidence: true,
+            ...(access.access_mode === "direct" ? { evidence_scope: source.evidence_scope, registered_clause_id: source.clause_id ?? null } : {}) },
+          expected: "同条目录仅按直接主资料中已登记的唯一clause_id分组；来源合法性与这个目录能力分开。",
+          context_directory: directory, source_access: { evidence_id: source.evidence_id, ...access, tool_arguments: toolArguments },
+          writable_paths: ["/context_for_evidence_id"],
+          ...(access.access_mode === "direct" ? { quote_locator: { tool: "locate_evidence_span", fixed_arguments: { evidence_id: source.evidence_id },
+            author_required_parameters: ["quote"], instruction: "已有正文或精确片段时，直接定位模型自己选择的原文；不需要先列同条目录。定位仍检查已读窗口及原文一致性。" } } : {}),
+          ...(delivered ? { next_action: { kind: "choose_source_fragment", decision_owner: "model", instruction: "本次已交付该来源正文。自行选择需要的片段并按quote_locator定位；具体缺口才补读source_access，不强制重读。" } }
+            : { next_tool: access.read_tool, next_tool_arguments: toolArguments }),
+          instruction: access.access_mode === "direct"
+            ? "来源合法但不具备同条目录条件，具体原因见context_directory；非primary与缺唯一登记条号是不同原因，不代表无适用内容。已有正文可直接选择并定位精确片段，需要正文才按source_access读取当前同一来源，不退回全局第一页、不猜相邻归属。"
+            : "来源受引用读取政策约束，按source_access的精确入口取得目录或正文；不能用同条目录、open_evidence或定位工具绕过隔离。",
         };
       }
       const resources = this.evidence.evidence
@@ -5589,10 +5955,12 @@ export class ToolController {
         .map(record => ({
           evidence_id: record.evidence_id, clause_id: record.clause_id, locator: record.locator,
           read_tool: "open_evidence", tool_arguments: { evidence_id: record.evidence_id, cursor: 0 },
+          context_directory: evidenceContextDirectory(record, access),
         }));
       const page = boundedPage(resources, input);
       const response = {
         ok: true, metadata_only: true, budget_consumed: false,
+        context_directory: directory,
         context: { basis: "exact_primary_clause_id", evidence_id: source.evidence_id,
           clause_id: source.clause_id, resource_count: resources.length },
         resources: page.rows, next_cursor: page.next_cursor,
@@ -5935,6 +6303,7 @@ export class ToolController {
         instruction: "该全文资源与 isolated_reference 原始范围重叠，不能登记 dependency 或 scope_extension。原样复制 routed_references 中的 target_key 调用 read_reference_facts。",
       };
     }
+    const accessByEvidenceId = await this.evidenceAccessIndex(false);
     const exactExisting = this.evidence.evidence.find((record) => record.evidence_id === atomId);
     if (exactExisting) {
       return {
@@ -5944,9 +6313,9 @@ export class ToolController {
         match: "exact_evidence_id",
         atom_id: atomId,
         existing_evidence_count: 1,
-        existing_evidence: [evidenceResource(exactExisting)],
+        existing_evidence: [evidenceResource(exactExisting, this.evidenceAccess(exactExisting, accessByEvidenceId))],
         existing_evidence_truncated: false,
-        resource: evidenceResource(exactExisting),
+        resource: evidenceResource(exactExisting, this.evidenceAccess(exactExisting, accessByEvidenceId)),
         instruction: "该 atom 已在当前 target scope/evidence manifest 中；拆分后的 evidence 保留相同 atom_id。直接 open/search 这些 evidence，不要注册或扩展 scope。",
       };
     }
@@ -5994,14 +6363,13 @@ export class ToolController {
         match: lineageExisting.length ? "selected_atom_lineage" : "selected_atom_line_range",
         atom_id: atomId,
         existing_evidence_count: available.length,
-        existing_evidence: available.slice(0, 32).map((entry) => evidenceResource(entry)),
+        existing_evidence: available.slice(0, 32).map((entry) => evidenceResource(entry, this.evidenceAccess(entry, accessByEvidenceId))),
         existing_evidence_truncated: available.length > 32,
         instruction: lineageExisting.length
           ? "该 atom 已完整落在当前 target 行范围内，拆分 evidence 的 atom_id lineage 已确认。直接 open/search，不能消耗 scope refresh。"
           : "该 atom 已完整落在当前 target 行范围内。当前是旧 manifest，按行号找到了现有 evidence；直接 open/search，不能消耗 scope refresh。",
       };
     }
-    const accessByEvidenceId = await this.evidenceAccessIndex(false);
     const containingRecord = this.evidence.evidence.find((record) => {
       if (this.evidenceAccess(record, accessByEvidenceId).access_mode === "isolated_reference") return false;
       const range = charLocatorRange(record.locator);
@@ -6017,7 +6385,7 @@ export class ToolController {
         registration_required: false,
         match: "contained_physical_window",
         requested_resource: resourceMetadata,
-        resource: evidenceResource(containingRecord),
+        resource: evidenceResource(containingRecord, this.evidenceAccess(containingRecord, accessByEvidenceId)),
         instruction: "该全局 atom 已被当前 target scope/evidence manifest 的物理窗口完整包含，无需注册或扩展 scope；可直接从现有 evidence open/locate 后引用。",
       };
     }
@@ -6037,7 +6405,7 @@ export class ToolController {
         next_tool_arguments: { atom_id: atomId },
         retry_tool: "register_external_dependency",
         retry_arguments: retryArguments,
-        instruction: "本次登记未执行，未写入 evidence manifest、来源 span 或选择器。先用 next_tool_arguments 调用 open_global_document_resource 打开该 atom；打开成功后，保留原 mode 和 reason，按 retry_arguments 重试 register_external_dependency。若需使用短 atom 句柄，调用时在参数顶层带上当前回条中的 source_handle_scope；不要把 scope 放进 retry_arguments。",
+        instruction: "本次登记未执行，未写入 evidence manifest、来源 span 或选择器。先用 next_tool_arguments 调用 open_global_document_resource 打开该 atom；打开成功后，保留原 mode 和 reason，按 retry_arguments 重试 register_external_dependency。短 atom 句柄直接使用当前回条中的值，所属目标由程序绑定；不添加 source_handle_scope。",
         do_not_edit: "不可变原文、当前 target scope、已保存 selector、编译产物及本次调用中其他正确参数；不要改 atom_id、mode 或 reason 来绕过打开门禁。",
       };
     }
@@ -6144,7 +6512,7 @@ export class ToolController {
       registration_phase: coverageRepairDependency ? "coverage_repair" : (state.selector_protocol?.submissions ?? 0) > 0 ? "selector_correction" : "pre_submission",
       requires_revalidation: true,
       budget_consumed: false,
-      resource: evidenceResource(record),
+      resource: evidenceResource(record, this.evidenceAccess(record, accessByEvidenceId)),
       business_span_available: false,
       next_tool: "locate_evidence_span",
       tool_argument_hints: {
@@ -6593,7 +6961,7 @@ export class ToolController {
     });
   }
 
-  private unknownLocatorEvidence(evidenceId: string, retryTool: string, writablePath: string): ToolResponse {
+  private unknownLocatorEvidence(evidenceId: string, retryTool: string, writablePath: string): ToolResponse & { ok: false; error: string; instruction: string } {
     return {
       ok: false, error: "unknown_evidence_id", evidence_id: evidenceId,
       actual: { evidence_id: evidenceId, registered_in_current_evidence: false },
@@ -6920,7 +7288,17 @@ export class ToolController {
         ...(key ? { read_key: key } : {}),
         required_action: key ? "edit_or_remove_exact_record" : "read_full_record_by_key",
         instruction: "source_dispositions 的目录 key 是工具生成的当前内容读取键，不是持久化字段。不带 key 分页读取目录，再按返回 key 读取完整 rows 记录。删除时用 stage_target_selector_draft 的 collection=source_dispositions、remove_keys=[读取键]；局部修改 span_ids 时同次删除旧读取键并在 draft.source_dispositions 提交剩余完整记录。不要把目录 key 写进草稿；保留其他记录。读取键在记录内容变化后失效，重试前重新读取。",
-      } : key ? {} : {
+      } : key ? {} : selected.length === 0 ? {
+        collection_empty: rows.length === 0,
+        required_action: rows.length === 0 ? "create_source_grounded_records" : "read_collection_from_start",
+        ...(rows.length === 0 ? {
+          writable_paths: [`/${collection}`], save_tool: "stage_target_selector_draft",
+          instruction: "当前集合尚无已保存记录，因此没有可读取的 key；这不表示原文缺失或引用未定位。依据已读原文和当前契约，用 stage_target_selector_draft 的 draft 在此集合增量创建完整真实记录；不要编造读取 key。若接收项或正文尚未准备，先完成对应依赖，不创建空记录来通过检查。",
+        } : {
+          next_tool: "read_target_selectors", next_tool_arguments: { collection, cursor: 0, limit },
+          instruction: "当前页为空，但集合有已保存记录。按 next_tool_arguments 返回目录起点，再复制实际 row.key 读取全文。",
+        }),
+      } : {
         required_action: "read_full_record_by_key",
         instruction: "本页只列出 key、name 和字段填写标记。用相同 collection 和 key=<row.key> 调用 read_target_selectors 读取单条完整记录；不带 key 重读集合不会返回正文。",
       }),
@@ -8466,6 +8844,7 @@ export class ToolController {
       await readFile(this.workspace.workingSelectorPath, "utf8"),
     ));
     const current = currentMigration.plan;
+    const previousSelectors = structuredClone(current);
     if (patch.draft_fingerprint !== undefined && patch.draft_fingerprint !== targetSelectorFingerprint(current)) {
       return { ...selectionFailure("selector_draft_fingerprint_mismatch", { supplied: patch.draft_fingerprint, current: targetSelectorFingerprint(current) }, "/draft_fingerprint",
         "本次处理期间草稿已变，所有选择和临时来源均未保存。读取当前记录并核对业务选择后，用当前指纹重试；不覆盖并发更新。"),
@@ -8596,7 +8975,7 @@ export class ToolController {
         ? [...recordRoots, `/${touchedCollection}`]
         : recordRoots;
     });
-    const localValidation = await this.validateStagedSelectorRecords(current, touchedRoots);
+    const localValidation = await this.validateStagedSelectorRecords(current, touchedRoots, previousSelectors);
     const localValidationPassed = localValidation.ok === true;
     let referenceLocatorSourceRepair: Record<string, unknown> | undefined;
     if (["table", "commit"].includes(this.selectorStage)) {
@@ -8649,9 +9028,11 @@ export class ToolController {
     const savedRecordsEcho = savedRecordsBytes <= SAVED_RECORDS_MAX_BYTES
       ? { saved_records: savedRecords.records }
       : { saved_record_keys: savedRecords.keys };
-    const repairWork = await this.selectorRepairWork();
-    const stageIndex = SELECTOR_STAGE_ORDER.indexOf(this.selectorStage);
-    const nextStage = stageIndex < 0 ? undefined : SELECTOR_STAGE_ORDER[stageIndex + 1];
+    const execution = await this.selectorExecutionStep();
+    const { work: nextWork, state: executionState, ...nextStep } = execution;
+    const advisory = nextWork && "advisory_only" in nextWork && nextWork.advisory_only;
+    const repairWork = advisory ? undefined : nextWork;
+    const authoringWork = advisory ? nextWork : undefined;
     return {
       ...written,
       ok: true,
@@ -8666,10 +9047,10 @@ export class ToolController {
       content_validation_performed: true,
       local_validation: localValidation,
       selector_repair_work: repairWork,
+      ...(authoringWork ? { selector_authoring_work: authoringWork } : {}),
       current_stage: this.selectorStage,
-      ...(repairWork ? selectorWorkNextStep(repairWork) : nextStage
-        ? { next_tool: "advance_target_selector_stage", next_tool_arguments: { next_stage: nextStage }, expected_next_stage: nextStage }
-        : { next_tool: "commit_target_selector_draft", next_tool_arguments: { draft_fingerprint: targetSelectorFingerprint(current) } }),
+      execution_state: executionState,
+      ...nextStep,
       ...(referenceLocatorSourceRepair ? { reference_locator_source_repair: referenceLocatorSourceRepair } : {}),
       delivery_preview: selectorDeliveryPreview(current, registry, this.evidence.evidence, touchedItemKeys,
         new Set((await this.workspace.readState()).opened_evidence_ids), touchedSamplingRuleKeys),
@@ -8689,7 +9070,7 @@ export class ToolController {
       counts: { lots: current.lots.length, items: current.items.length, sampling_rules: current.sampling_rules.length, references: current.references.length, source_dispositions: current.source_dispositions.length },
       ...(quietRepairDraft ? {repair_progress: await this.coverageRepairDraftProgress(current,repairBefore)} : {}),
       instruction: renderFeedback({ kind: localValidationPassed ? "saved_local_ok" : "saved_local_failed",
-    constraint: "本次全部增删已落盘，不重放已执行操作。顶层next_tool/next_tool_arguments是当前唯一下一步入口；有selector_repair_work时先处理待办，deferred仅表示未触及记录，并非允许推迟。待办清空后再按返回参数检查或提交，原计数与上限不变。delivery_preview与delivery_investigation只供业务比较，不授权推进或新增审核轮次。" }),
+    constraint: "本次全部增删已落盘，不重放已执行操作。当前唯一下一步入口由next_action或next_tool/next_tool_arguments给出；selector_repair_work给出当前合同错误，selector_authoring_work给出待判断来源，支持读取仅在缺上下文时使用。deferred详情按分页入口读取，原计数与上限不变。delivery_preview与delivery_investigation只供比较，不新增审核轮次。" }),
     };
   }
 
@@ -8948,14 +9329,27 @@ export class ToolController {
       || gaps.length !== preflight.issues.length || primaryIds.length !== new Set(evidenceIds).size
       || paths.length !== 1 || paths[0] !== "/items"
       || input.preflight_issue_fingerprint !== preflight.issue_fingerprint) {
+      const work = await this.selectorExecutionWork();
+      const sourceIds = new Set(evidenceIds);
+      const registered = this.evidence.reference_occurrences.filter(row => row.status === "resolved"
+        && (sourceIds.has(row.origin_evidence_id) || row.target_evidence_ids.some(id => sourceIds.has(id))))
+        .map(row => ({ occurrence_id: row.occurrence_id, target_locator: referenceOccurrenceTargetLocator(row),
+          target_evidence_count: row.target_evidence_ids.length, source_role: "registered_reference",
+          primary_range_expansion_required: false, applicability_decision_owner: "model" }));
       return {
         ok: false, terminal: false, budget_consumed: false, error: "frozen_scope_conflict_unverified",
         actual: { frozen_semantic_basis: basis ?? null, preflight_issue_fingerprint: preflight?.issue_fingerprint ?? null,
-          missing_clauses: missingClauses, matching_primary_evidence_ids: primaryIds },
+          missing_clauses: missingClauses, matching_primary_evidence_ids: primaryIds,
+          registered_references_for_supplied_source: registered },
+        expected: { scope_conflict: "current_preflight_only_has_primary_ledger_gaps_with_matching_evidence_and_fingerprint",
+          reference_scope: "registered_reference_sources_do_not_require_expanding_primary_source_ranges" },
         writable_paths: ["/kind", "/preflight_issue_fingerprint", "/evidence_span_ids", "/affected_selector_paths", "/explanation"],
-        next_tool: preflight ? "read_target_selectors" : "commit_target_selector_draft",
-        next_tool_arguments: preflight ? { collection: "items" } : { draft_fingerprint: targetSelectorFingerprint(selectors) },
-        instruction: "本报告未停止任务。通过条件：存在冻结的 subject/boundary_reason，当前草稿仅有底账必抽缺口，引用 span 均是缺失条文的 primary 原文，affected_selector_paths=[\"/items\"]，并提供当前 commit 返回的 preflight_issue_fingerprint。先按 next_tool 取得当前状态；修复其他可执行输入问题后 commit，再用缺口原文和准确指纹报告。冻结范围不可写；无语义冲突时按缺口回条修复 selector。",
+        ...(work ? { current_work: work, ...selectorWorkNextStep(work) } : preflight
+          ? { next_tool: "read_target_selectors", next_tool_arguments: { collection: "items" } }
+          : { next_tool: "commit_target_selector_draft", next_tool_arguments: { draft_fingerprint: targetSelectorFingerprint(selectors) } }),
+        instruction: "本报告未停止任务。通过条件：存在冻结的subject/boundary_reason，当前草稿仅有底账必抽缺口，报告span均是缺失条文的primary原文，affected_selector_paths=[\"/items\"]，并提供当前commit的preflight_issue_fingerprint。primary仅界定直接正文，不排除通过已登记引用接收范围外来源；按原引用、实际字段及业务适用性判断，不修改冻结primary范围。"
+          + (work ? "当前仍有作者待办，先执行current_work/next_action，不能为取得报告指纹提前commit。" : "按next_tool取得当前状态，再以真实缺口及准确指纹报告。")
+          + "来源获准使用不证明其业务适用，也不要求把整个引用全部判为不适用；保留真实条件和例外，不编造接收关系。",
       };
     }
     const report = {
@@ -8975,6 +9369,10 @@ export class ToolController {
   }
 
   private async reportTargetBlocker(input: Record<string, unknown>): Promise<ToolResponse> {
+    if (input.kind === "ambiguous_source") {
+      const delivery = await this.pendingReferenceDeliveryResponse();
+      if (delivery) return delivery;
+    }
     const kind = String(input.kind ?? "");
     const spanIds = Array.isArray(input.evidence_span_ids) ? input.evidence_span_ids.map(String) : [];
     const paths = Array.isArray(input.affected_selector_paths) ? input.affected_selector_paths.map(String) : [];
@@ -11276,7 +11674,7 @@ function selectorDraftPlacementError(raw: unknown): ToolResponse | undefined {
         next_tool: "stage_target_selector_draft",
       },
     })),
-    instruction: "本工具的参数嵌套固定：lots、items、sampling_rules、references、source_dispositions、residual_source_dispositions 都只能放在 draft 内；业务参数顶层只允许 operation、draft_fingerprint、reference_selections、draft、quote_bindings、collection、remove_keys。引用字段选择使用 reference_selections 与当前 draft_fingerprint 独立调用，不与 draft/remove_keys/replace_collection 混用。模型工具使用短来源句柄时，另需在参数顶层携带 source_handle_scope；canonical IDs 可不带，source_handle_scope 不能放进 draft。本次未保存草稿或来源登记。将报错集合移入 draft，重新提交完整记录。保留 operation、collection、remove_keys、quote_bindings 和其他正确字段：本次被拒绝调用的任何修改都未生效。若有 remove_keys，本次只提交它声明的集合，其他集合另次提交。不得丢弃原删除意图，也不得删除正确记录来消除报错。",
+    instruction: "本工具的参数嵌套固定：lots、items、sampling_rules、references、source_dispositions、residual_source_dispositions 都只能放在 draft 内；业务参数顶层只允许 operation、draft_fingerprint、reference_selections、draft、quote_bindings、collection、remove_keys。引用字段选择使用 reference_selections 与当前 draft_fingerprint 独立调用，不与 draft/remove_keys/replace_collection 混用。来源所属目标由程序绑定当前工具会话；直接使用当前回条中的短句柄，不传 source_handle_scope，也不放进 draft。本次未保存草稿或来源登记。将报错集合移入 draft，重新提交完整记录。保留 operation、collection、remove_keys、quote_bindings 和其他正确字段：本次被拒绝调用的任何修改都未生效。若有 remove_keys，本次只提交它声明的集合，其他集合另次提交。不得丢弃原删除意图，也不得删除正确记录来消除报错。",
   };
   const items: unknown[] = Array.isArray(patch.draft?.items) ? patch.draft.items : [];
   const misplaced = items.flatMap((item, index) => item && typeof item === "object" && !Array.isArray(item) && Object.hasOwn(item, "reference_span_ids")
@@ -11309,6 +11707,8 @@ export function createPiTools(controller: ToolController, hooks: PiToolHooks = {
       limit: Type.Optional(Type.Number({ minimum: 1, maximum: 100 })),
       discovery_context_cursor: Type.Optional(Type.Integer({ minimum: 0, description: "发现阶段共同线索目录的独立游标；按 next_context_page 翻页，不读取正文或重检。" })),
       discovery_context_limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+      component_plan_occurrence_id: Type.Optional(Type.String({ minLength: 1, description: "读取模型自己保存的该引用组件计划；不替模型选择适用关系。" })),
+      component_plan_cursor: Type.Optional(Type.Integer({ minimum: 0 })),
       field_diagnostic_cursor: Type.Optional(Type.Integer({ minimum: 0, description: "当前字段诊断游标。旧快照失效或尚无诊断时从 0 开始；不提交、不消耗完整检查次数。" })),
       field_diagnostic_fingerprint: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$", description: "翻页或详情时复制返回的输入指纹，防止旧游标误指当前字段。" })),
       field_diagnostic_detail_mode: Type.Optional(Type.Literal("full", { description: "与字段游标、输入指纹同用，只读该条完整诊断。" })),
@@ -11583,6 +11983,8 @@ export function createPiTools(controller: ToolController, hooks: PiToolHooks = {
     description: ACCEPTANCE_TOOL_DESCRIPTIONS["read_reference_facts"]!,
     parameters: Type.Object({
       target_key: Type.String({ pattern: "^reference-target:[a-f0-9]{64}$", description: "从本会话公开工具回条中已登记并明确返回的 target_key 原样复制；不得填写 target_fingerprint。" }),
+      evidence_ids: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 24,
+        description: "诊断已点名证据时，定位它们所在的目录条目和行。只与 target_key 同传；返回导航后按 next_tool_arguments 读正文，不代表已读或已判断适用性。" })),
       row_cursor: Type.Optional(Type.Integer({ minimum: 0, description: "仅用于继续单一条目正文；传入非零值时 entry_ids 必须恰好一项，并原样使用上一回条的 next_row_cursor。" })),
       row_offset: Type.Optional(Type.Integer({ minimum: 0, description: "仅用于继续单一条目当前行；传入非零值时 entry_ids 必须恰好一项，并原样使用上一回条的 next_row_offset。" })),
       catalog_cursor: Type.Optional(Type.Integer({ minimum: 0, description: "仅用于目录翻页，与正文 row_cursor、row_offset 独立；原样使用上一回条的 next_catalog_cursor。" })),
@@ -11915,6 +12317,12 @@ export function createPiTools(controller: ToolController, hooks: PiToolHooks = {
   });
   if (controller.usesSelectorCompiler) {
     return [
+      defineTool({ name: "stage_reference_component_decisions", label: "保存引用组件处置", description: ACCEPTANCE_TOOL_DESCRIPTIONS["stage_reference_component_decisions"]!,
+        parameters: REFERENCE_COMPONENT_EDIT_INPUT, executionMode: "sequential",
+        execute: async (id, params) => resultContent(await controller.dispatch("stage_reference_component_decisions", params, id)) }),
+      defineTool({ name: "save_target_component_plan", label: "保存模型组件处理计划", description: ACCEPTANCE_TOOL_DESCRIPTIONS["save_target_component_plan"]!,
+        parameters: COMPONENT_PLAN_INPUT, executionMode: "sequential",
+        execute: async (id, params) => resultContent(await controller.dispatch("save_target_component_plan", params, id)) }),
       defineTool({ name: "save_target_investigation", label: "保存调查交接", description: ACCEPTANCE_TOOL_DESCRIPTIONS["save_target_investigation"]!, parameters: Type.Object({ summary: Type.String({ minLength: 1, maxLength: 3000 }), evidence_ids: Type.Array(Type.String(), { maxItems: 24, description: INVESTIGATION_KEY_SOURCE_GUIDANCE }), next_steps: Type.String({ maxLength: 1500 }) }, { additionalProperties: false }), executionMode: "sequential", execute: async (id, params) => resultContent(await controller.dispatch("save_target_investigation", params, id)) }),
       getTargetContext,
       getTargetSelectorContract,

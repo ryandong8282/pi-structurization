@@ -51,7 +51,7 @@ test('source diagnostics offer the context directory without declaring its neigh
     { code: 'compiler_unhandled_evidence', path: '/source_dispositions', details: { evidence_ids: [source.evidence_id] } },
   ]))[0];
   const navigation = issue.details.source_access[0].context_directory;
-  expect(navigation).toEqual({ tool: 'list_evidence_resources',
+  expect(navigation).toEqual({ available: true, unavailable_reasons: [], tool: 'list_evidence_resources',
     tool_arguments: { context_for_evidence_id: source.evidence_id, cursor: 0, limit: 24 },
     basis: 'exact_primary_clause_id' });
   const result = await controller.dispatch(navigation.tool, navigation.tool_arguments);

@@ -494,9 +494,8 @@ test("real selector staging advertises one nested home for every business collec
   expect(Object.keys(schema.properties.draft.properties)).toEqual(draftCollections);
   expect(schema.properties.draft.description).toContain("都只能作为 draft 的子字段");
   expect(schema.properties.draft.description).toContain(businessPlacement);
-  expect(schema.properties.draft.description).toContain("source_handle_scope 是模型短来源句柄包装追加的顶层会话参数");
-  expect(schema.properties.draft.description).toContain("使用 canonical IDs 时可省略");
-  expect(schema.properties.draft.description).toContain("不能放进 draft");
+  expect(schema.properties.draft.description).toContain("来源所属目标由程序绑定当前工具会话");
+  expect(schema.properties.draft.description).toContain("不传 source_handle_scope，也不放进 draft");
   for (const collection of draftCollections) {
     expect(schema.properties.draft.properties[collection].description).toContain(`只能写在 draft.${collection}`);
     expect(schema.properties).not.toHaveProperty(collection);
@@ -504,8 +503,8 @@ test("real selector staging advertises one nested home for every business collec
   expect(tool.description).toContain("原子保存draft内完整typed记录");
   expect(TARGET_SELECTOR_PROTOCOLS.patch).toContain("集合只在 draft 内");
   expect(TARGET_SELECTOR_PROTOCOLS.source_handles).toContain("source_handle_scope");
-  expect(TARGET_SELECTOR_PROTOCOLS.source_handles).toContain("全用 canonical IDs 可省略 scope");
-  expect(TARGET_SELECTOR_PROTOCOLS.source_handles).toContain("scope 不放入 draft");
+  expect(TARGET_SELECTOR_PROTOCOLS.source_handles).toContain("模型不传 source_handle_scope");
+  expect(TARGET_SELECTOR_PROTOCOLS.source_handles).toContain("也不把它放入 draft");
 
   const raw = { operation: "upsert", draft: { items: [] }, references: [], source_dispositions: [] };
   let receipt: any;
@@ -521,14 +520,12 @@ test("real selector staging advertises one nested home for every business collec
   });
   expect(receipt.instruction).toContain("都只能放在 draft 内");
   expect(receipt.instruction).toContain(businessPlacement);
-  expect(receipt.instruction).toContain("短来源句柄");
-  expect(receipt.instruction).toContain("source_handle_scope");
-  expect(receipt.instruction).toContain("canonical IDs 可不带");
-  expect(receipt.instruction).toContain("不能放进 draft");
+  expect(receipt.instruction).toContain("短句柄");
+  expect(receipt.instruction).toContain("不传 source_handle_scope，也不放进 draft");
   expect(dispatch).not.toHaveBeenCalled();
 });
 
-test("wrapped selector staging leads with optional scope while preserving its gate and business contract", async () => {
+test("legacy explicit-scope wrapping preserves its compatibility gate while the current author contract is session-bound", async () => {
   const root = await mkdtemp(join(tmpdir(), "selector-scope-contract-")); roots.push(root);
   const codec = await ModelSourceHandles.open(root);
   const dispatch = vi.fn(async (_toolName: string, _args: Record<string, unknown>) => ({ok: true}));
@@ -541,8 +538,8 @@ test("wrapped selector staging leads with optional scope while preserving its ga
   expect(schema.properties.source_handle_scope).toMatchObject({type: "string", minLength: 1});
   expect(schema.properties.source_handle_scope).not.toHaveProperty("const");
   expect(schema.properties.draft.description).toContain(`业务参数顶层只允许 ${businessFields.join("、")}`);
-  expect(schema.properties.draft.description).toContain("source_handle_scope 是模型短来源句柄包装追加的顶层会话参数");
-  expect(TARGET_SELECTOR_PROTOCOLS.source_handles).toContain("全用 canonical IDs 可省略 scope");
+  expect(schema.properties.draft.description).toContain("来源所属目标由程序绑定当前工具会话");
+  expect(TARGET_SELECTOR_PROTOCOLS.source_handles).toContain("模型不传 source_handle_scope");
 
   const canonicalEvidenceId = `evidence:${"a".repeat(64)}`;
   const encoded = await codec.encode({evidence_id: canonicalEvidenceId}) as {evidence_id: string};

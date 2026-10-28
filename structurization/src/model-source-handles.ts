@@ -11,15 +11,23 @@ import { withToolArgumentFeedback } from "./tool-argument-feedback.js";
 
 export const SOURCE_HANDLE_SCOPE_FIELD = "source_handle_scope";
 export const SOURCE_HANDLE_SESSION_ENTRY = "model-source-handles/v1";
+export const SOURCE_HANDLE_BOUND_CONTRACT = "session-bound-source-handles/v1";
 export const SOURCE_HANDLE_INSTRUCTION = prompt_SOURCE_HANDLE_INSTRUCTION;
 
-export function sourceHandleSessionMatches(entries: readonly unknown[], scope: string): boolean {
-  return entries.some(entry => object(entry) && entry.type === "custom" && entry.customType === SOURCE_HANDLE_SESSION_ENTRY && entry.data?.scope === scope);
+export interface SourceHandleToolSession {
+  getCwd(): string;
+  getEntries(): readonly unknown[];
 }
 
-export async function sourceHandleSessionFileMatches(path: string, scope: string): Promise<boolean> {
+export function sourceHandleSessionMatches(entries: readonly unknown[], scope: string, contract?: string): boolean {
+  const markers = entries.filter(entry => object(entry) && entry.type === "custom" && entry.customType === SOURCE_HANDLE_SESSION_ENTRY) as Record<string, any>[];
+  return markers.length > 0 && markers.every(entry => entry.data?.scope === scope
+    && (contract === undefined || entry.data?.tool_contract === contract));
+}
+
+export async function sourceHandleSessionFileMatches(path: string, scope: string, contract?: string): Promise<boolean> {
   if (!path) return false;
-  try { return sourceHandleSessionMatches((await readFile(path,"utf8")).split(/\r?\n/u).filter(Boolean).map(line=>JSON.parse(line)),scope); }
+  try { return sourceHandleSessionMatches((await readFile(path,"utf8")).split(/\r?\n/u).filter(Boolean).map(line=>JSON.parse(line)),scope,contract); }
   catch { return false; }
 }
 
@@ -73,6 +81,8 @@ export class ModelSourceHandles {
   private byCanonical = new Map<string, Entry>();
   private readonly originalSchemas = new Map<string, unknown>();
   private readonly resultPairs = new Map<string, { canonical: unknown[]; encoded: unknown[] }>();
+  private toolSession?: SourceHandleToolSession;
+  private toolSessionCwd?: string;
 
   private constructor(public readonly ownerRoot: string, state: State) {
     this.directory = join(ownerRoot, ".model-source-handles");
@@ -223,8 +233,13 @@ export class ModelSourceHandles {
   private decodeLoaded(value: unknown, checkRole: boolean): unknown {
     if (!object(value)) throw new SourceHandleError("source_handle_arguments_must_be_object");
     const { [SOURCE_HANDLE_SCOPE_FIELD]: scope, ...body } = value;
-    if (scope !== undefined && scope !== this.scope) throw new SourceHandleError("source_handle_scope_mismatch", { received_scope: scope });
-    return this.walk(body, (id,role,argumentPath) => this.decodeId(id,role,scope,checkRole,argumentPath));
+    // UUID separators/case carry no identity. Accept formatting differences only
+    // when all 128 bits match; never guess, truncate, or relabel another scope.
+    const sameUuid = typeof scope === "string" && /^[a-f0-9-]+$/iu.test(scope)
+      && /^[a-f0-9-]+$/iu.test(this.scope) && scope.replaceAll("-", "").length === 32
+      && scope.replaceAll("-", "").toLowerCase() === this.scope.replaceAll("-", "").toLowerCase();
+    if (scope !== undefined && scope !== this.scope && !sameUuid) throw new SourceHandleError("source_handle_scope_mismatch", { received_scope: scope });
+    return this.walk(body, (id,role,argumentPath) => this.decodeId(id,role,scope === undefined ? undefined : this.scope,checkRole,argumentPath));
   }
   async decodeArguments(value: unknown): Promise<Record<string, unknown>> {
     return this.exclusive(async () => { await this.reload(); return this.decodeLoaded(value,true) as Record<string,unknown>; });
@@ -233,8 +248,8 @@ export class ModelSourceHandles {
     return this.exclusive(async () => { await this.reload(); return this.decodeLoaded(value,false); });
   }
 
-  private schema(value: any, role?: Role): any {
-    if (Array.isArray(value)) return value.map(child => this.schema(child,role));
+  private schema(value: any, role?: Role, bound = false): any {
+    if (Array.isArray(value)) return value.map(child => this.schema(child,role,bound));
     if (!object(value)) return value;
     if (role && value.type === "string" && (value.pattern || value.minLength || value.const !== undefined || value.enum)) {
       // Field meaning applies to both wire formats, not only the canonical-ID branch.
@@ -242,31 +257,53 @@ export class ModelSourceHandles {
       delete canonical.description;
       return Type.Union([canonical, Type.String({
         pattern: role === "checkpoint" ? "^c[1-9][0-9]*$" : "^[seart][1-9][0-9]*$",
-        description: `复制当前工具回条中${shortHandleRoles[role]}句柄，并带回条的 source_handle_scope；不得自己编编号。`,
+        description: `复制当前工具回条中${shortHandleRoles[role]}句柄${bound ? "；所属目标由程序绑定，不传 source_handle_scope" : "，并带回条的 source_handle_scope"}；不得自己编编号。`,
       })], typeof value.description === "string" ? { description: value.description } : {});
     }
     // TypeBox's non-enumerable kind/optional markers must survive schema edits.
     const result = Object.create(Object.getPrototypeOf(value),Object.getOwnPropertyDescriptors(value));
     for (const [key,child] of Object.entries(value)) {
       result[key] = key === "properties" && object(child)
-        ? Object.fromEntries(Object.entries(child).map(([name,schema]) => [name,this.schema(schema,sourceRole(name))]))
-        : this.schema(child,role);
+        ? Object.fromEntries(Object.entries(child).map(([name,schema]) => [name,this.schema(schema,sourceRole(name),bound)]))
+        : this.schema(child,role,bound);
     }
     return result;
   }
 
   wrapTools(tools: ToolDefinition[]): ToolDefinition[] {
+    return this.wrapSourceTools(tools);
+  }
+
+  /** Bind the codec to the provider session, never to a scope supplied by the model. */
+  async wrapSessionTools(tools: ToolDefinition[], session: SourceHandleToolSession): Promise<ToolDefinition[]> {
+    if ((this.toolSession && this.toolSession !== session)
+      || await realpath(session.getCwd()) !== this.ownerRoot
+      || !sourceHandleSessionMatches(session.getEntries(), this.scope, SOURCE_HANDLE_BOUND_CONTRACT)) {
+      throw new SourceHandleError("source_handle_session_binding_invalid");
+    }
+    this.toolSession = session;
+    this.toolSessionCwd = session.getCwd();
+    return this.wrapSourceTools(tools, session);
+  }
+
+  private sessionIsBound(session: SourceHandleToolSession): boolean {
+    return this.toolSession === session && session.getCwd() === this.toolSessionCwd
+      && sourceHandleSessionMatches(session.getEntries(), this.scope, SOURCE_HANDLE_BOUND_CONTRACT);
+  }
+
+  private wrapSourceTools(tools: ToolDefinition[], session?: SourceHandleToolSession): ToolDefinition[] {
+    const bound = session !== undefined;
     const ajv = new Ajv({ allErrors: true, strict: false });
     const availableToolNames = new Set(tools.map(tool => tool.name));
     return tools.map(tool => {
       const original = tool.parameters;
-      const parameters = this.schema(original);
+      const parameters = this.schema(original, undefined, bound);
       if (parameters.type !== "object" || !object(parameters.properties) || Object.hasOwn(parameters.properties,SOURCE_HANDLE_SCOPE_FIELD)) {
         throw new SourceHandleError("source_handle_unsupported_tool_schema", { tool_name: tool.name });
       }
       // Keep this schema session-stable: a per-session UUID Literal would unique the
       // tools[] prefix and prevent Chat Completions from sharing prompt cache across targets.
-      parameters.properties = {
+      if (!bound) parameters.properties = {
         [SOURCE_HANDLE_SCOPE_FIELD]: Type.Optional(Type.String({
           minLength: 1,
           description: "复制当前工具回条中的 source_handle_scope，不得编造或复用其他会话的 scope。",
@@ -280,10 +317,37 @@ export class ModelSourceHandles {
         execute: async (...args: Parameters<typeof tool.execute>) => {
           let decoded: Record<string,unknown>;
           try {
-            decoded = await this.decodeArguments(args[1]);
+            if (session && (!this.sessionIsBound(session) || await realpath(session.getCwd()) !== this.ownerRoot)) {
+              throw new SourceHandleError("source_handle_session_binding_invalid");
+            }
+            // Explicit scope belongs only to the legacy wire protocol. Never relabel it.
+            if (bound && object(args[1]) && Object.hasOwn(args[1], SOURCE_HANDLE_SCOPE_FIELD)) {
+              throw new SourceHandleError("source_handle_legacy_scope_argument", {
+                actual: args[1][SOURCE_HANDLE_SCOPE_FIELD], writable_path: `/${SOURCE_HANDLE_SCOPE_FIELD}`,
+                expected: "当前工具会话已由程序绑定所属目标；删除旧的 source_handle_scope 参数，保留其他参数",
+              });
+            }
+            const input = args[1];
+            decoded = await this.decodeArguments(bound && object(input) ? { ...input, [SOURCE_HANDLE_SCOPE_FIELD]: this.scope } : input);
             if (!validate(decoded)) throw new SourceHandleError("source_handle_decoded_arguments_invalid", { issues: validate.errors });
           } catch (error) {
             if (!(error instanceof SourceHandleError)) throw error;
+            if (bound && ["source_handle_session_binding_invalid", "source_handle_owner_mismatch", "source_handle_scope_changed", "source_handle_map_corrupt", "source_handle_map_incomplete"].includes(error.code)) {
+              // An invalid owner/session is a harness failure, never an author repair.
+              const details = { ok: false, error: "source_handle_session_binding_invalid", cause: error.code,
+                terminal: true, failure_class: "coverage_harness_defect", retryable: false,
+                actual: "当前工具会话或持久来源映射的归属校验失败",
+                expected: "工具会话协议、工作目录和持久映射必须属于同一目标",
+                writable_paths: [], original_tool_executed: false, durable_mutation: false,
+                instruction: "停止本轮，由程序检查会话及映射归属；没有作者可写的修复位置，不重试业务工具、不改草稿或来源编号。" };
+              return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
+            }
+            if (bound && error.code === "source_handle_legacy_scope_argument") {
+              const details = { ok: false, error: error.code, ...error.details,
+                retry_tool: tool.name, original_tool_executed: false, durable_mutation: false,
+                instruction: "当前会话由程序绑定来源归属。删除顶层 source_handle_scope，保留全部业务参数后重试原工具；本次未执行。" };
+              return { content: [{ type: "text" as const, text: JSON.stringify(details) }], details };
+            }
             const missingScope = error.code === "source_handle_scope_required";
             const mismatchedScope = error.code === "source_handle_scope_mismatch";
             const wrongType = error.code === "source_handle_wrong_type";
@@ -370,7 +434,7 @@ export class ModelSourceHandles {
               } : {}),
               ...(checkpointReadTool && !missingScope ? {
                 next_tool: checkpointReadTool, tool_arguments: {}, retry_tool: tool.name,
-                required_action: `调用 ${checkpointReadTool}，tool_arguments={}，不带旧 scope 或句柄；从当前回条取得草稿/校验检查点及 source_handle_scope，核对后只替换检查点参数再重试。`,
+                required_action: `调用 ${checkpointReadTool}，tool_arguments={}，不带旧 scope 或句柄；从当前回条取得草稿/校验检查点${bound ? "" : "及 source_handle_scope"}，核对后只替换检查点参数再重试。`,
                 do_not_edit: "工具尚未执行；保留已保存草稿及原业务意图。短检查点映射精确 SHA-256，过期检查点仍会被原校验拒绝。",
               } : {}),
               ...(wrongType && !checkpointReadTool ? {
@@ -381,7 +445,7 @@ export class ModelSourceHandles {
                 ...(canReadEvidenceForSpan ? {
                   tool_arguments: {
                     evidence_id: error.details.handle,
-                    [SOURCE_HANDLE_SCOPE_FIELD]: this.scope,
+                    ...(!bound ? { [SOURCE_HANDLE_SCOPE_FIELD]: this.scope } : {}),
                   },
                 } : {}),
                 retry_tool: tool.name,
@@ -411,7 +475,7 @@ export class ModelSourceHandles {
                     : `参数 ${argumentPath ?? "argument_path"} 的句柄类型错误。只替换 writable_path 指向的句柄，保留其余参数并重试 retry_tool；禁止猜测、截断、规范化或借用其他 scope 的句柄。`
                   : "按 argument_path 定位无效句柄，从当前工具回条或重新读取的来源中取得同类型句柄；只替换 writable_path，禁止猜测、截断、规范化或借用其他 scope 的句柄。",
             };
-            return { content: [{ type: "text" as const, text: JSON.stringify({ ...details, [SOURCE_HANDLE_SCOPE_FIELD]: this.scope }) }], details };
+            return { content: [{ type: "text" as const, text: JSON.stringify(bound ? details : { ...details, [SOURCE_HANDLE_SCOPE_FIELD]: this.scope }) }], details };
           }
           const result = await tool.execute.apply(tool,[args[0],decoded,...args.slice(2)] as Parameters<typeof tool.execute>);
           const content = [] as typeof result.content;
@@ -422,8 +486,8 @@ export class ModelSourceHandles {
             if (!object(value) && !Array.isArray(value)) { content.push(block); continue; }
             if (object(value) && Object.hasOwn(value,SOURCE_HANDLE_SCOPE_FIELD)) throw new SourceHandleError("source_handle_reserved_field_collision");
             const encoded = await this.encode(value);
-            content.push({ type: "text", text: JSON.stringify(object(encoded) ? { ...encoded, [SOURCE_HANDLE_SCOPE_FIELD]: this.scope } : encoded) });
-            if (Array.isArray(encoded)) content.push({ type: "text", text: JSON.stringify({ [SOURCE_HANDLE_SCOPE_FIELD]: this.scope }) });
+            content.push({ type: "text", text: JSON.stringify(!bound && object(encoded) ? { ...encoded, [SOURCE_HANDLE_SCOPE_FIELD]: this.scope } : encoded) });
+            if (!bound && Array.isArray(encoded)) content.push({ type: "text", text: JSON.stringify({ [SOURCE_HANDLE_SCOPE_FIELD]: this.scope }) });
           }
           this.resultPairs.set(args[0], { canonical: result.content, encoded: content });
           // details are internal harness data. Only content is sent to the model.
@@ -440,6 +504,10 @@ export class ModelSourceHandles {
       return { source_handle_scope: this.scope, actual_request_utf8_bytes: bytes(payload), comparison: "Canonical request comparison is only available for the Chat Completions payload shape." };
     }
     const baseline = structuredClone(payload) as Record<string,any>;
+    const bound = this.toolSession && this.sessionIsBound(this.toolSession);
+    const decode = (parsed: unknown, checkRole: boolean) => this.decodeLoaded(
+      bound && object(parsed) && !Object.hasOwn(parsed, SOURCE_HANDLE_SCOPE_FIELD)
+        ? { ...parsed, [SOURCE_HANDLE_SCOPE_FIELD]: this.scope } : parsed, checkRole);
     let comparedResults = 0, comparedCalls = 0, unresolved = 0;
     for (const message of baseline.messages ?? []) {
       if (message.role === "system" && typeof message.content === "string") message.content = message.content.replace(`\n\n${SOURCE_HANDLE_INSTRUCTION}`, "");
@@ -448,12 +516,12 @@ export class ModelSourceHandles {
         if (pair && pair.canonical.every((block:any) => block.type === "text")) {
           message.content = pair.canonical.map((block:any) => block.text).join("\n"); comparedResults++;
         } else {
-          try { const parsed = JSON.parse(message.content); if (parsed[SOURCE_HANDLE_SCOPE_FIELD] === this.scope) { message.content = JSON.stringify(this.decodeLoaded(parsed,false)); comparedResults++; } } catch { unresolved++; }
+          try { const parsed = JSON.parse(message.content); if (bound || parsed[SOURCE_HANDLE_SCOPE_FIELD] === this.scope) { message.content = JSON.stringify(decode(parsed,false)); comparedResults++; } } catch { unresolved++; }
         }
       }
       for (const call of message.tool_calls ?? []) {
         if (typeof call.function?.arguments !== "string") continue;
-        try { const parsed = JSON.parse(call.function.arguments); if (parsed[SOURCE_HANDLE_SCOPE_FIELD] === this.scope) { call.function.arguments = JSON.stringify(this.decodeLoaded(parsed,true)); comparedCalls++; } } catch { unresolved++; }
+        try { const parsed = JSON.parse(call.function.arguments); if (bound || parsed[SOURCE_HANDLE_SCOPE_FIELD] === this.scope) { call.function.arguments = JSON.stringify(decode(parsed,true)); comparedCalls++; } } catch { unresolved++; }
       }
     }
     for (const tool of baseline.tools ?? []) {

@@ -1248,10 +1248,13 @@ test("one large diagnostic pages its exact source arrays without exceeding the r
   const state = await workspace.readState(), draft = await readFile(workspace.workingSelectorPath, "utf8");
   const registry = await readFile(workspace.sourceSpanRegistryPath, "utf8");
   const checks = compile.mock.calls.length;
-  for (const [path, original] of [["/details/evidence_ids", ids], ["/details/source_access", routes]] as const) {
+  expect(diagnostic.details.source_access).toHaveLength(1);
+  expect(diagnostic.details.source_access[0]).toMatchObject({ target_key: "reference-target:neutral",
+    access_mode: "isolated_reference", next_tool: "read_reference_facts", tool_arguments: { target_key: "reference-target:neutral" } });
+  for (const path of ["/details/evidence_ids", "/details/source_access/0/evidence_ids"]) {
     const descriptor = diagnostic.diagnostic_array_pages.find((p: any) => p.path === path);
     expect(descriptor.total_count).toBe(3000);
-    const received = [...(path.endsWith("evidence_ids") ? diagnostic.details.evidence_ids : diagnostic.details.source_access)];
+    const received = [...(path === "/details/evidence_ids" ? diagnostic.details.evidence_ids : diagnostic.details.source_access[0].evidence_ids)];
     let next = descriptor.next_page;
     while (next) {
       expect(Check(createPiTools(controller).find(t => t.name === next.next_tool)!.parameters, next.next_tool_arguments)).toBe(true);
@@ -1261,7 +1264,7 @@ test("one large diagnostic pages its exact source arrays without exceeding the r
       received.push(...page.entries);
       next = page.next_page;
     }
-    expect(received).toEqual(original);
+    expect(received).toEqual(ids);
   }
   expect(compile).toHaveBeenCalledTimes(checks);
   expect(fullCheck).not.toHaveBeenCalled();
@@ -2418,7 +2421,7 @@ test.each(["compiler_invariant_violation", "final_contract_violation"])("%s rema
   expect(runtime.terminalToolFailure(result)).toMatchObject({ error: issueOwner });
 });
 
-test.each(["primary", "commit"] as const)("successful draft save in %s names a reachable next action", async stage => {
+test.each(["primary", "commit"] as const)("successful draft save in %s hands unfinished table work to a reachable action", async stage => {
   const { controller, workspace, manifest } = await fixture(stage);
   const title = manifest.evidence.find(row => row.role === "formal_table_title")!;
   await controller.dispatch("open_evidence", { evidence_id: title.evidence_id });
@@ -2426,11 +2429,32 @@ test.each(["primary", "commit"] as const)("successful draft save in %s names a r
   const span = registry.spans.find(row => row.evidence_id === title.evidence_id)!;
   const saved = await controller.dispatch("stage_target_selector_draft", { draft: { source_dispositions: [{ span_ids: [span.span_id], disposition: "context", reason: "题注提供表格上下文，本身没有独立验收判据。" }] } });
   expect(saved, JSON.stringify(saved)).toMatchObject({ ok: true, local_validation: { ok: true } });
-  const nextTool = stage === "commit" ? "commit_target_selector_draft" : "advance_target_selector_stage";
+  const nextTool = "read_table_summary";
   expect(saved.next_tool).toBe(nextTool);
+  expect(saved.selector_authoring_work).toMatchObject({ code: "author_table_structure_pending", advisory_only: true,
+    path: "/table", writable_paths: ["stage_table_structure.table"], save_tool: "stage_table_structure" });
   expect(Check(createPiTools(controller).find(tool => tool.name === saved.next_tool)!.parameters, saved.next_tool_arguments)).toBe(true);
   expect(offeredTools(controller)).toContain(nextTool);
   if (stage === "commit") expect(saved.instruction).not.toContain("advance_target_selector_stage");
+});
+
+test.each(["primary", "commit"] as const)("a save in %s retains its normal stage route after source decisions are complete", async stage => {
+  const { controller, workspace, manifest } = await fixture(stage);
+  for (const source of manifest.evidence) await controller.dispatch("open_evidence", { evidence_id: source.evidence_id });
+  const structure = await controller.dispatch("read_saved_table_structure", {}) as any;
+  const table = structure.structure.tables[0];
+  const rowIds = manifest.table_fragments[0]!.row_evidence_ids;
+  const headerIds = manifest.evidence.filter(row => row.role === "formal_table_header").map(row => row.evidence_id);
+  const structureSave = await controller.dispatch("stage_table_structure", { table: { ...table, status: "confirmed",
+    header_rows: headerIds, data_rows: rowIds.filter(id => !headerIds.includes(id)),
+    review_rows: [], reason: "合成夹具中的单层表头与数据行均已核对，只验证完成后的下一步路由。" } });
+  expect(structureSave, JSON.stringify(structureSave)).toMatchObject({ validation: { ok: true } });
+  const registry = await workspace.readSourceSpanRegistry();
+  const saved = await controller.dispatch("stage_target_selector_draft", { draft: { source_dispositions: [{
+    span_ids: registry.spans.map(row => row.span_id), disposition: "context", reason: "合成路由夹具已显式处置全部来源，不作为业务正确性证明。",
+  }] } });
+  expect(saved).toMatchObject({ ok: true, next_tool: stage === "commit" ? "commit_target_selector_draft" : "advance_target_selector_stage" });
+  expect(saved).not.toHaveProperty("selector_authoring_work");
 });
 
 test.each([

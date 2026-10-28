@@ -479,3 +479,21 @@ export function pendingComplexTableStructureIssues(
 export function tableStructureFingerprint(plan: TableStructurePlan): string {
   return sha256Json(plan);
 }
+
+/** Progress identity only. Explanations and set ordering do not constitute a
+ * new structural decision; invalid or unconfirmed records grant no progress. */
+export function tableStructureProgress(plan: TableStructurePlan, manifest: EvidenceManifest, registry: SourceSpanRegistry) {
+  const issues = validateTableStructurePlan(plan, manifest, registry);
+  const tables = plan.tables.filter((table, index) => table.status === "confirmed"
+    && !issues.some(issue => !issue.path.startsWith("/tables/")
+      || issue.path === `/tables/${index}` || issue.path.startsWith(`/tables/${index}/`)))
+    .map(({ reason: _reason, row_role_overrides, ...table }) => ({
+      ...Object.fromEntries(Object.entries(table).map(([key, value]) => [key,
+        Array.isArray(value) ? [...new Set(value)].sort() : value])),
+      table_key: table.table_key,
+      row_role_overrides: row_role_overrides.map(({ reason: _reason, ...row }) => row)
+        .sort((left, right) => left.row_id.localeCompare(right.row_id)),
+    })).sort((left, right) => String(left.table_key).localeCompare(String(right.table_key)));
+  return { fingerprint: tables.length ? sha256Json(tables) : "",
+    confirmed_keys: tables.map(table => String(table.table_key)) };
+}

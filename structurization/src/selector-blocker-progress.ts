@@ -37,6 +37,17 @@ function facts(value: unknown): unknown {
   ).map(([key, child]) => [key, facts(child)]));
 }
 
+/** Saved author decisions, without explanations, confidence or record ordering.
+ * This detects an actual edit; it never declares that the business choice passed. */
+export function selectorAuthorFactsFingerprint(selectors: TargetSelectorPlan): string {
+  const normalized = facts(selectors) as Record<string, unknown>;
+  for (const key of ["lots", "items", "sampling_rules", "references", "source_dispositions", "residual_source_dispositions"]) {
+    const rows = normalized[key];
+    if (Array.isArray(rows)) normalized[key] = [...rows].sort((left, right) => sha256Json(left).localeCompare(sha256Json(right)));
+  }
+  return sha256Json(normalized);
+}
+
 function sourceIds(value: unknown, found = new Set<string>(), key = ""): Set<string> {
   if (typeof value === "string" && (value.startsWith("evidence:") || key === "evidence_id" || key.endsWith("evidence_ids"))) found.add(value);
   else if (Array.isArray(value)) value.forEach(child => sourceIds(child, found, key));

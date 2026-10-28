@@ -23,6 +23,98 @@ function snapshot(hash: string, history: number): DurablePromptSnapshot {
 }
 
 describe("Pi output-length continuation", () => {
+  test("closing assigned source work counts despite stale, unassessed stage probes", async () => {
+    let round = 0;
+    const current = () => ({ ...snapshot(`saved-record-${round}`, 20 + round),
+      authoring_work_identity: `source-${round}`, blocking_issues: [{ identity: "old-stage-issue", fingerprint: "old", assessed: false }] });
+    const progress: boolean[] = [];
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "continue current author work", continuationPrompt: "read and save the next source decision",
+      promptRound: async () => ({ kind: ++round === 5 ? "sealed" : "completed" }),
+      lastAssistant: () => ({ stopReason: "stop" }), snapshot: async () => current(),
+      shouldContinueAfterCompleted: async () => true,
+      observeBlockingProgress: async () => ({ progress: false, stalled: [] }),
+      onCompletedContinuation: async event => { progress.push(event.durable_progress); },
+    });
+    expect(result).toMatchObject({ outcome: { kind: "sealed" }, error: "" });
+    expect(progress).toEqual([true, true, true, true]);
+  });
+
+  test.each([false, true])("unchanged assigned work cannot be hidden by unrelated saves (assessed=%s)", async assessed => {
+    let round = 0;
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "finish the actual assigned source", continuationPrompt: "continue",
+      promptRound: async () => { round++; return { kind: "completed" }; }, lastAssistant: () => ({ stopReason: "stop" }),
+      snapshot: async () => ({ ...snapshot(`unrelated-edit-${round}`, 20 + round), authoring_work_identity: "same-source",
+        blocking_issues: [{ identity: "held-issue", fingerprint: "same", assessed }] }),
+      shouldContinueAfterCompleted: async () => true, observeBlockingProgress: async () => ({ progress: false, stalled: [] }),
+    });
+    expect(round).toBe(3); expect(result.error).toMatch(/^incomplete_repair_without_durable_progress:/);
+  });
+
+  test("an assessed unresolved blocker still takes precedence over advisory navigation changes", async () => {
+    let round = 0;
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "repair the current field", continuationPrompt: "continue",
+      promptRound: async () => { round++; return { kind: "completed" }; }, lastAssistant: () => ({ stopReason: "stop" }),
+      snapshot: async () => ({ ...snapshot(`edit-${round}`, round), authoring_work_identity: `advisory-${round}`,
+        repair_work_issues: [{ identity: "current-field", fingerprint: "same" }] }),
+      shouldContinueAfterCompleted: async () => true, observeBlockingProgress: async () => ({ progress: false, stalled: [] }),
+    });
+    expect(round).toBe(3); expect(result.error).toMatch(/^incomplete_repair_without_durable_progress:/);
+  });
+
+  test("cycling between the same source decisions remains bounded", async () => {
+    let round = 0;
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "neutral cycle", continuationPrompt: "continue",
+      promptRound: async () => { round++; return { kind: "completed" }; }, lastAssistant: () => ({ stopReason: "stop" }),
+      snapshot: async () => ({ ...snapshot(`plan-${round % 2}`, round), authoring_work_identity: `source-${round % 2}`,
+        blocking_issues: [{ identity: "old", fingerprint: "old", assessed: false }] }),
+      shouldContinueAfterCompleted: async () => true, observeBlockingProgress: async () => ({ progress: false, stalled: [] }),
+    });
+    expect(round).toBeLessThanOrEqual(5); expect(result.error).toMatch(/^incomplete_repair_durable_progress_cycle:/);
+  });
+
+  test("confirmed table decisions advance completed rounds without pretending the selector changed", async () => {
+    let current = snapshot("same-selector", 17);
+    let rounds = 0;
+    const observed: boolean[] = [];
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "finish the neutral tables and their author records",
+      continuationPrompt: "continue persisted work",
+      promptRound: async () => {
+        rounds++;
+        if (rounds === 4) return { kind: "sealed" as const };
+        current = { ...current, table_structure_progress: { fingerprint: `confirmed-${rounds}`,
+          confirmed_keys: Array.from({ length: rounds }, (_, index) => `neutral-table-${index}`) } };
+        return { kind: "completed" as const };
+      },
+      lastAssistant: () => ({ stopReason: "stop" }), snapshot: async () => current,
+      shouldContinueAfterCompleted: async () => true,
+      onCompletedContinuation: async event => { observed.push(event.durable_progress); },
+    });
+    expect(result).toMatchObject({ outcome: { kind: "sealed" }, error: "" });
+    expect(observed).toEqual([true, true, true]);
+    expect(current.history_sequence).toBe(17);
+    expect(current.working_plan_sha256).toBe("same-selector");
+  });
+
+  test("resaving the same confirmed structure does not buy another completed round", async () => {
+    const current = { ...snapshot("unchanged", 23),
+      table_structure_progress: { fingerprint: "same-confirmed-structure", confirmed_keys: ["neutral-table"] } };
+    let rounds = 0;
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "neutral input", continuationPrompt: "continue",
+      promptRound: async () => { rounds++; return { kind: "completed" as const }; },
+      lastAssistant: () => ({ stopReason: "stop" }), snapshot: async () => current,
+      shouldContinueAfterCompleted: async () => true,
+    });
+    expect(result.error).toMatch(/^incomplete_repair_without_durable_progress:/);
+    expect(rounds).toBe(3);
+    expect(current.history_sequence).toBe(23);
+  });
+
   test("continues durable progress in one prompt session until terminal seal", async () => {
     let current = snapshot("plan-a", 1);
     let assistant: unknown;

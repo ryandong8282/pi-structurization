@@ -88,7 +88,10 @@ describe("current field diagnostics without a full preflight", () => {
     expect(await controller.dispatch("open_evidence", { evidence_id: source.evidence_id, cursor: 0 })).toMatchObject({ ok: true });
     const readState = await workspace.readState();
     expect(readState.opened_evidence_ids).not.toEqual(before.opened_evidence_ids);
-    expect(await controller.dispatch("get_target_context", { field_diagnostic_cursor: 0 })).toMatchObject({ diagnostics_reused: false });
+    // The body-read handoff now refreshes current relationship work before it
+    // returns. The explicit diagnostic read reuses that fresh cache.
+    expect(compile).toHaveBeenCalledTimes(1);
+    expect(await controller.dispatch("get_target_context", { field_diagnostic_cursor: 0 })).toMatchObject({ diagnostics_reused: true });
     expect(await controller.dispatch("get_target_context", { field_diagnostic_cursor: 0 })).toMatchObject({ diagnostics_reused: true });
     expect(compile).toHaveBeenCalledTimes(1);
     expect((await workspace.readState()).opened_evidence_ids).toEqual(readState.opened_evidence_ids);

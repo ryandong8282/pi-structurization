@@ -386,7 +386,7 @@ describe("reference target span feedback", () => {
         next_tool: "list_reference_occurrences",
         save_tool: "stage_target_selector_draft",
         save_tool_instruction: expect.stringContaining("draft.items"),
-        how_to_pass: expect.stringContaining("先按原文补齐 draft.items"),
+        how_to_pass: expect.stringContaining("不要求先读完或判断整章"),
       });
       expect(String(issue?.details?.how_to_pass).length).toBeLessThanOrEqual(420);
       expect(actionableSelectorIssue(classifySelectorIssue("selector-local", issue!))).toMatchObject({
@@ -5743,7 +5743,7 @@ describe("target selector compiler", () => {
         next_tool: "read_target_selectors",
         next_tool_arguments: { collection: "references", key: "ref-appendix-c" },
         save_tool: "stage_target_selector_draft",
-        how_to_pass: expect.stringContaining("analysis_mode"),
+        how_to_pass: expect.stringContaining("不是不可变引用库存"),
       },
     });
     expect(actionableSelectorIssue(classifySelectorIssue("selector-local", missingDispositionIssue!))).toMatchObject({
@@ -5753,10 +5753,10 @@ describe("target selector compiler", () => {
     });
     const repairInstruction = String(missingDispositionIssue!.details?.how_to_pass);
     expect(repairInstruction.length).toBeLessThanOrEqual(420);
-    expect(repairInstruction).toContain("建立真实 item");
-    expect(repairInstruction).toContain("保留实质要求");
-    expect(repairInstruction).toContain("保留适用条件");
-    expect(repairInstruction).toContain("draft.references、必要时 draft.items");
+    expect(repairInstruction).toContain("它们仍由完整引用库存检查保留为未决");
+    expect(repairInstruction).toContain("不得删除已有正确决定、实际条件");
+    expect(repairInstruction).toContain("接收者、条件和不适用理由由模型依据原文判断");
+    expect(repairInstruction).toContain("完整draft.references和必要的draft.items");
     const handoff = new SelectorCompletedPreflightHandoff();
     const draftFingerprint = "a".repeat(64);
     handoff.setDraftFingerprint(draftFingerprint);

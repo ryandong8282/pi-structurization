@@ -11,6 +11,7 @@ import { Type } from "typebox";
 import { catchToolReject, toolReject } from "./actionable-error.js";
 import { appendText, atomicWriteJson, pathExists, readJson } from "./atomic.js";
 import { sha256Json } from "./canonical.js";
+import { tableRowRepresentationIds } from "./table-row-representations.js";
 import type { EvidenceManifest, ReferenceOccurrence, RevisionState } from "./contracts.js";
 import {
   renderReferenceCatalog,
@@ -1123,6 +1124,37 @@ interface CatalogDispositionState {
   used: string[];
   ignored: Array<{ entry_id: string; reason: string }>;
   opened_ranges?: Record<string, Record<string, Array<[number, number]>>>;
+  pending_delivery?: Array<{ entry_id: string; row_cursor: number; row_offset: number }>;
+}
+
+/** Mechanical continuation of explicitly requested text, never an applicability verdict. */
+export function referenceCatalogDeliveryWork(state: RevisionState, phase: ReferenceAnalysisPhase = "target"): {
+  identity: string; code: "reference_source_delivery_pending"; path: "/references";
+  advisory_only: true; budget_consumed: false; full_stage_check_performed: false;
+  target_key: string; pending_delivery_count: number;
+  diagnostic_read: { tool: "read_reference_facts"; arguments: {
+    target_key: string; entry_ids: string[]; row_cursor: number; row_offset: number;
+  } };
+  record_read?: { tool: string; arguments: Record<string, unknown> };
+  instruction: string;
+} | undefined {
+  const entry = Object.entries(state.reference_catalog_dispositions ?? {})
+    .find(([key, value]) => key.startsWith(`${phase}:`) && value.pending_delivery?.length);
+  if (!entry) return undefined;
+  const [key, value] = entry;
+  const target_key = key.slice(phase.length + 1);
+  const pending = value.pending_delivery!;
+  const first = pending[0]!;
+  return {
+    identity: sha256Json({ target_key, fingerprint: value.fingerprint, pending }),
+    code: "reference_source_delivery_pending", path: "/references",
+    advisory_only: true, budget_consumed: false, full_stage_check_performed: false,
+    target_key, pending_delivery_count: pending.length,
+    diagnostic_read: { tool: "read_reference_facts", arguments: {
+      target_key, entry_ids: [first.entry_id], row_cursor: first.row_cursor, row_offset: first.row_offset,
+    } },
+    instruction: "这是先前明确请求但尚未交付的正文。先按 diagnostic_read 补读，跟随每次回条的下一次调用直到交付完成，再继续对应作者待办。历史已读不代表本轮已拿到正文；交付完成也不代表适用性或业务完整性已通过。",
+  };
 }
 
 async function readCatalogDisposition(
@@ -1216,6 +1248,8 @@ function pendingEntryIds(
 }
 
 export interface ReferenceCatalogRequest {
+  /** 定位诊断点名的证据到目录条目和行；只返回导航，不登记正文已读或业务处置。 */
+  evidence_ids?: readonly string[] | undefined;
   row_cursor?: number | undefined;
   row_offset?: number | undefined;
   catalog_cursor?: number | undefined;
@@ -1262,6 +1296,26 @@ export async function readReferenceCatalog(
   const occurrence = occurrenceForTarget(manifest, targetKey);
   if (!occurrence) return referenceTargetNotFoundFeedback(targetKey, phase, "read_reference_facts");
 
+  if (request.evidence_ids !== undefined) {
+    const conflicting = Object.entries(request).filter(([key, value]) => key !== "evidence_ids" && value !== undefined).map(([key]) => key);
+    const invalid = request.evidence_ids.length === 0 || request.evidence_ids.length > 24;
+    if (conflicting.length || invalid) return {
+      ok: false, error: "reference_catalog_navigation_arguments_conflict", target_key: targetKey,
+      actual: { evidence_count: request.evidence_ids.length, conflicting_parameters: conflicting },
+      expected: "证据定位只传 target_key 和 1～24 个 evidence_ids；正文读取、游标和 skip 另行调用。",
+      writable_paths: ["/evidence_ids", ...conflicting.map(key => `/${key}`)],
+      next_tool: "read_reference_facts", next_tool_arguments: { target_key: targetKey },
+      instruction: "按实际参数修正导航调用；若不确定证据编号，先取目录。此次没有打开正文或修改处置。",
+    };
+    const unknown = request.evidence_ids.filter(id => !occurrence.target_evidence_ids.includes(id));
+    if (unknown.length) return {
+      ok: false, error: "reference_catalog_evidence_not_found", target_key: targetKey,
+      actual: { unknown_evidence_ids: unknown }, expected: "evidence_ids 必须属于当前登记引用目标。",
+      writable_paths: ["/evidence_ids"], next_tool: "read_reference_facts", next_tool_arguments: { target_key: targetKey },
+      instruction: "从当前诊断或来源目录复制属于此 target_key 的证据编号，不猜造或跨目标借用；此次没有打开正文或修改处置。",
+    };
+  }
+
   // inline 小目标一次就能读完，走目录反而多一趟往返，也绕过 inline 的字节预算记账。
   const policy = await assignReferenceAnalysisPolicy(workspace, manifest, occurrence, phase, signal);
   throwIfAborted(signal);
@@ -1278,13 +1332,34 @@ export async function readReferenceCatalog(
       next_tool_arguments: { target_key: targetKey, cursor: 0 },
       writable_parameters: ["target_key", "cursor", "limit"],
       do_not_edit: "不可变引用原文、已正确的 selector 或编译产物",
-      instruction: "此目标采用 inline 读取，不提供 read_reference_facts 目录。按 next_tool_arguments 调用 read_document_reference_evidence，首次传入返回的 target_key 和 cursor=0；后续把每次回条的 next_cursor 原样作为下一次 cursor，直到 done=true。cursor 必须是非负整数，limit 可省略或填写 1～24。领域读取参数仅为 target_key、cursor、limit，不沿用目录接口的 entry_ids 或 catalog_cursor；使用短句柄时，还须在参数顶层复制本回条的 source_handle_scope，不得省略或改写。",
+      instruction: "此目标采用 inline 读取，不提供 read_reference_facts 目录。按 next_tool_arguments 调用 read_document_reference_evidence，首次传入返回的 target_key 和 cursor=0；后续把每次回条的 next_cursor 原样作为下一次 cursor，直到 done=true。cursor 必须是非负整数，limit 可省略或填写 1～24。领域读取参数仅为 target_key、cursor、limit，不沿用目录接口的 entry_ids 或 catalog_cursor；直接使用当前回条中的短句柄，来源所属目标由程序绑定。",
     };
   }
 
   const { evidence, resolved: resolvedCatalog } = await resolveCatalogForTarget(workspace, manifest, targetKey, occurrence, ask, signal);
   const activeSignal = resolvedCatalog.local_timeout_fallback ? undefined : signal;
   throwIfAborted(activeSignal);
+  if (request.evidence_ids !== undefined) {
+    const routes = [...new Set(request.evidence_ids)].flatMap(evidenceId => {
+      const entry = resolvedCatalog.entries.find(candidate => candidate.evidence_ids.includes(evidenceId));
+      if (!entry) return [];
+      const row = entry.evidence_ids.indexOf(evidenceId);
+      return [{ evidence_id: evidenceId, entry_id: entry.entry_id, row_index: row,
+        next_tool: "read_reference_facts", next_tool_arguments: {
+          target_key: targetKey, entry_ids: [entry.entry_id], row_cursor: row, row_offset: 0,
+        } }];
+    });
+    if (routes.length !== new Set(request.evidence_ids).size) return {
+      ok: false, terminal: true, error: "reference_catalog_source_route_unavailable", target_key: targetKey,
+      actual: { unrouted_evidence_ids: request.evidence_ids.filter(id => !routes.some(route => route.evidence_id === id)) },
+      expected: "当前引用库存中的每个证据必须能映射到目录行。", writable_paths: [],
+      instruction: "这是目录映射缺失，作者不能修改来源库存或猜造行号；保留检查点供 harness 排查。",
+    };
+    return { ok: true, metadata_only: true, target_key: targetKey, source_routes: routes,
+      next_tool: routes[0]!.next_tool, next_tool_arguments: routes[0]!.next_tool_arguments,
+      instruction: "这里只定位诊断点名的真实来源，没有交付正文、授予 span 或判断适用性。按 source_routes 的调用读取对应行；同一次正文返回已覆盖的其他点名行可复用，不重复读取。正文及分页仍用原读取预算，依据实际原文保存业务决定。",
+    };
+  }
   const fingerprint = catalogFingerprint(targetKey, evidence, resolvedCatalog.entries);
   const readKey = `${phase}:${targetKey}`;
   const disposition: CatalogDispositionState = await readCatalogDisposition(workspace, readKey, fingerprint)
@@ -1409,6 +1484,10 @@ export async function readReferenceCatalog(
     };
   }
   const explicitlyRequestedEntryIds = new Set(entryIds.filter((entryId) => byEntryId.has(entryId)));
+  const deliveryPending = new Map((disposition.pending_delivery ?? []).map(row => [row.entry_id, row]));
+  for (const entryId of explicitlyRequestedEntryIds) {
+    deliveryPending.set(entryId, { entry_id: entryId, row_cursor: rowCursor, row_offset: rowOffset });
+  }
   disposition.ignored = disposition.ignored.filter((ignored) =>
     !explicitlyRequestedEntryIds.has(ignored.entry_id)
   );
@@ -1477,6 +1556,8 @@ export async function readReferenceCatalog(
     opened.push({entry_id:entry.entry_id,source_label:entry.source_label,kind:entry.kind,title:entry.title.slice(0,200),lines:`${entry.start_line}-${entry.end_line}`,
       rows,row_cursor:rowCursor,row_offset:rowOffset,total_rows:entry.evidence_ids.length,
       next_row_cursor:cursor<entry.evidence_ids.length?cursor:null,next_row_offset:cursor<entry.evidence_ids.length?offset:null});
+    if (cursor < entry.evidence_ids.length) deliveryPending.set(entryId, { entry_id: entryId, row_cursor: cursor, row_offset: offset });
+    else deliveryPending.delete(entryId);
   }
 
   const rowsToResolve = [...new Map([
@@ -1566,15 +1647,25 @@ export async function readReferenceCatalog(
   }
 
   throwIfAborted(activeSignal);
+  for (const ignored of disposition.ignored) deliveryPending.delete(ignored.entry_id);
+  disposition.pending_delivery = [...deliveryPending.values()];
   await writeCatalogDisposition(workspace, readKey, disposition, activeSignal);
   throwIfAborted(activeSignal);
   const pending = pendingEntryIds(disposition, resolvedCatalog.entries, recordsById);
+  const deliveryWork = referenceCatalogDeliveryWork({ reference_catalog_dispositions: { [readKey]: disposition } } as RevisionState, phase);
+  const inventory = new Set(occurrence.target_evidence_ids);
+  const representations = [...tableRowRepresentationIds(manifest.evidence.filter(row => inventory.has(row.evidence_id)))];
   return {
     ok: true,
     target_key: targetKey,
     rule_source: resolvedCatalog.rule_source,
     total_entries: resolvedCatalog.entries.length,
     evidence_count: evidence.length,
+    ...(representations.length ? { same_physical_row_representations: {
+      pairs: representations.slice(0, 24).map(([representation_evidence_id, canonical_evidence_id]) => ({ representation_evidence_id, canonical_evidence_id })),
+      total: representations.length, complete: representations.length <= 24,
+      instruction: "这些是程序按同一来源坐标和单元格几何核验的同一物理表行表示，原始ID和原文保留；不是两个业务要求。库存盘点使用同一来源身份，适用性及字段/条件仍由模型判断。不同位置的同文不会据此合并。",
+    } } : {}),
     catalog: renderReferenceCatalog(resolvedCatalog.entries).slice(catalogCursor,catalogCursor+24).map((row,index)=>({...row,title:String(row.title).slice(0,200),bytes:entryBytes(resolvedCatalog.entries[catalogCursor+index]!)})),
     next_catalog_cursor: catalogCursor+24<resolvedCatalog.entries.length ? catalogCursor+24 : null,
     pagination_instruction: "目录每页最多 24 个条目，原文每页最多 24 行、32KB 文本。继续某条目时使用 entry_ids:[id]、row_cursor:next_row_cursor、row_offset:next_row_offset。分块行必须读完所有片段才算完整；打开条目不代表已提取全部要求。",
@@ -1587,10 +1678,17 @@ export async function readReferenceCatalog(
     ...(deferred.length > 0
       ? {
           deferred_entry_ids: deferred.slice(0, 24),
-          deferred_reason: `one call opens at most ${MAX_OPENED_BYTES_PER_CALL} bytes of source text`,
+          deferred_reason: openedRows >= 24 ? "per_call_row_limit_24" : `per_call_source_byte_limit_${MAX_OPENED_BYTES_PER_CALL}`,
         }
       : {}),
     disposition: { used: disposition.used.length, ignored: disposition.ignored.length, pending: pending.length },
+    disposition_scope: "cumulative_read_history_not_current_delivery",
+    delivery: {
+      requested_entry_ids: [...explicitlyRequestedEntryIds],
+      returned_entry_ids: opened.map(entry => entry.entry_id), returned_rows: openedRows, returned_utf8_bytes: openedBytes,
+      pending_count: deliveryPending.size, pending: [...deliveryPending.values()].slice(0, 24),
+      complete: deliveryPending.size === 0,
+    },
     disposition_instruction: "used 只表示条目已选择或开始读取；条目全部证据行（含分页行的全部片段）完整读完后才不再 pending。ignored 表示已给理由跳过；skip 可将部分读取的 used 条目转为 ignored，显式把同一 entry_id 放回 entry_ids 会撤销 ignored，并可沿此前回条游标继续已保留的读取进度。同一次调用同时 skip 和 entry_ids 同一条目时，以 entry_ids 重新打开为准。",
     ...(pending.length > 0
       ? {
@@ -1598,6 +1696,12 @@ export async function readReferenceCatalog(
           required_action: "read_every_entry_to_completion_or_skip_with_reason",
         }
       : {}),
+    ...(deliveryWork ? {
+      required_action: "complete_requested_reference_delivery",
+      current_work: deliveryWork,
+      next_tool: deliveryWork.diagnostic_read.tool,
+      next_tool_arguments: deliveryWork.diagnostic_read.arguments,
+    } : {}),
   };
 }
 

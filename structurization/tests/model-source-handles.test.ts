@@ -16,6 +16,22 @@ async function fresh() { const root = await mkdtemp(join(tmpdir(),"pi-source-han
 afterEach(async()=>{for(const root of roots.splice(0))await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});});
 
 describe("model-only source handles",()=>{
+  test.each(["missing-separator", "upper-case", "compact"])("normalizes only the same UUID identity (%s), retaining the map and typed checks", async format => {
+    const { codec } = await fresh();
+    await codec.encode({ evidence_id: evidence });
+    const before = await readFile(codec.mapPath, "utf8");
+    const supplied = format === "missing-separator" ? codec.scope.replace("-", "")
+      : format === "upper-case" ? codec.scope.toUpperCase() : codec.scope.replaceAll("-", "");
+    expect(await codec.decodeArguments({ evidence_id: "e1", source_handle_scope: supplied })).toEqual({ evidence_id: evidence });
+    await expect(codec.decodeArguments({ span_id: "e1", source_handle_scope: supplied })).rejects.toMatchObject({ code: "source_handle_wrong_type" });
+    const other = await fresh();
+    await expect(codec.decodeArguments({ evidence_id: "e1", source_handle_scope: other.codec.scope.replaceAll("-", "") }))
+      .rejects.toMatchObject({ code: "source_handle_scope_mismatch" });
+    await expect(codec.decodeArguments({ evidence_id: "e1", source_handle_scope: codec.scope.slice(0, 8) + codec.scope }))
+      .rejects.toMatchObject({ code: "source_handle_scope_mismatch" });
+    expect(await readFile(codec.mapPath, "utf8")).toBe(before);
+  });
+
   test.each(["compiler_unhandled_evidence", "compiler_semantic_primary_atom_unclassified"])("%s repair identity uses the same typed public handles as its source reads", async code => {
     const { codec } = await fresh();
     const selectors = { items: [], references: [], source_dispositions: [] } as any;

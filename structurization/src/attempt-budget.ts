@@ -107,11 +107,14 @@ export const PROTOCOL_TARGET_FAILURES: Record<string, TargetFailurePolicy> = {
   target_scope_revision_required: { failure_class: "coverage_harness_defect", retryable: false },
   target_scope_conflict_requires_review: { failure_class: "coverage_harness_defect", retryable: false },
   target_selector_resume_checkpoint_missing: { failure_class: "coverage_harness_defect", retryable: false },
+  source_handle_session_binding_invalid: { failure_class: "coverage_harness_defect", retryable: false },
   target_selector_resume_evidence_mismatch: { failure_class: "coverage_harness_defect", retryable: false },
   selector_stage_incomplete_retry: { failure_class: "coverage_harness_defect", retryable: false },
   selector_coverage_repair_not_available: { failure_class: "coverage_harness_defect", retryable: false },
   selector_correction_not_available: { failure_class: "coverage_harness_defect", retryable: false },
   target_progress_stalled: { failure_class: "coverage_harness_defect", retryable: false },
+  incomplete_repair_without_durable_progress: { failure_class: "coverage_harness_defect", retryable: false },
+  incomplete_repair_durable_progress_cycle: { failure_class: "coverage_harness_defect", retryable: false },
   domain_coverage_repair_required: { failure_class: "coverage_repair", retryable: true },
   repair_session_restart_required: { failure_class: "candidate", retryable: true },
   length_without_durable_progress: { failure_class: "candidate", retryable: true },
@@ -165,7 +168,16 @@ export function isScopeExtensionRequired(error: string): boolean {
     || /\bscope_extension_required\b/i.test(error);
 }
 
+function sdkTransportErrorKey(error: string): "connection_closed" | "timeout" | undefined {
+  const message = error.trim().replace(/^Error:\s*/i, "");
+  if (/^Connection error\.?$/i.test(message)) return "connection_closed";
+  if (/^OpenAI Responses stream ended before a terminal response event\.?$/i.test(message)) return "connection_closed";
+  if (/^Request timed out\.?$/i.test(message)) return "timeout";
+  return undefined;
+}
+
 function classifyUnstructuredTargetFailure(error: string): TargetFailureClass {
+  if (sdkTransportErrorKey(error)) return "transport";
   if (/\bResponse incomplete:\s*max_messages\b/i.test(error)) return "transport";
   if (/\b40[0-3]\b|usage balance exhausted|run out of credits|invalid api key|invalid tool schema/i.test(error)) {
     return "provider_configuration";
@@ -288,6 +300,8 @@ export function canRetryTargetFailure(
 // Status codes identify incidents; variable upstream messages/request IDs do not.
 export function transportErrorKey(error: string): string | undefined {
   if (/context[_ ](?:length|window|too_large)/i.test(error) || classifyTargetFailure(error) !== "transport") return undefined;
+  const sdkKey = sdkTransportErrorKey(error);
+  if (sdkKey) return sdkKey;
   const status = error.match(/\b(408|429|5\d{2})\b/);
   if (status) return `http_${status[1]}`;
   if (/\bResponse incomplete:\s*max_messages\b/i.test(error)) return "max_messages";
@@ -314,6 +328,25 @@ export function recordTransportFailure(
       ? previous.consecutive_failures + 1
       : 1,
   };
+}
+
+/** A persisted retry incident is resumable work, not a new semantic attempt. */
+export function hasResumableTransportRetry(
+  error: unknown,
+  counters: TargetAttemptCounters | undefined,
+  limits: TargetAttemptLimits | undefined,
+  window: TransportRetryWindow | undefined,
+): boolean {
+  const incident = typeof error === "string" ? transportErrorKey(error) : undefined;
+  return typeof error === "string" && classifyTargetFailure(error) === "transport"
+    && Boolean(incident && counters && limits && window
+      && Number.isInteger(counters.transport_attempts) && counters.transport_attempts > 0
+      && Number.isInteger(limits.transport_retries) && limits.transport_retries >= 1 && limits.transport_retries <= 20
+      && Number.isInteger(window.consecutive_failures) && window.consecutive_failures > 0
+      && window.consecutive_failures <= counters.transport_attempts
+      && typeof window.checkpoint === "string" && /^[a-f0-9]{64}$/iu.test(window.checkpoint)
+      && window.error_key === incident
+      && canRetryTargetFailure(error, counters, limits, window));
 }
 
 export function isRepairSessionRestartRequired(error: string): boolean {

@@ -46,6 +46,17 @@ const routeKey = (item: string, field: string) => `${item}\0${field}`;
 const overlaps = (a: SourceSpanRecord, b: SourceSpanRecord) =>
   a.evidence_id === b.evidence_id && a.start < b.end && b.start < a.end;
 
+/** Expose the existing structural precondition before a model attempts the write. */
+export function referenceFieldSelectionCapability(reference: TargetSelectorPlan["references"][number] | undefined) {
+  const reasons = reference ? [
+    ...(reference.application_mode !== "reference_only" ? ["placeholder"] : []),
+    ...(reference.destinations.some(destination => destination.target_field === "sampling")
+      || reference.import_scope.allowed_fields.includes("sampling") ? ["sampling_relation"] : []),
+    ...(reference.component_dispositions?.some(component => component.decision === "not_applicable") ? ["excluded_components"] : []),
+  ] : [];
+  return { write_mode: reasons.length ? "full_records" as const : "field_selection" as const, reasons };
+}
+
 /**
  * Expand explicit business choices into the existing selector representation.
  * Nothing here decides applicability, invents absent roles, edits immutable
@@ -149,10 +160,7 @@ export function projectReferenceFieldSelections(
       continue;
     }
     const previous = references[0];
-    if (previous && (previous.application_mode !== "reference_only"
-      || previous.destinations.some(destination => destination.target_field === "sampling")
-      || previous.import_scope.allowed_fields.includes("sampling")
-      || previous.component_dispositions?.some(component => component.decision === "not_applicable"))) {
+    if (previous && referenceFieldSelectionCapability(previous).write_mode === "full_records") {
       failFullRecord("complex_reference", `${base}/occurrence_id`, "此引用包含占位、抽样或排除处置，无法安全进行局部字段投影；请保留现有内容并完整编辑该 reference。",
         { reference_key: previous.key, application_mode: previous.application_mode, destinations: previous.destinations }, "reference_only with explicit field receivers and adopted components only");
       continue;

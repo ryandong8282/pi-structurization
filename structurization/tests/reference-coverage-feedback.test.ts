@@ -8,8 +8,8 @@ import { materialize } from "../src/materializer.js";
 import { hydrateSemanticSourcePlan } from "../src/plan-hydration.js";
 
 // Synthetic evidence only: no live-job names, expected business answers or counts.
-function fixture(requirementText = "2.1.1 涂层表面应平整。") {
-  const texts = ["1.1.1 检验应符合本规范第2.1节的规定。", requirementText, "样本应均匀分布。", "每批抽查两件。", "另一个分支检查三件。"];
+function fixture(requirementText = "2.1.1 涂层表面应平整。", otherText = "另一个分支检查三件。") {
+  const texts = ["1.1.1 检验应符合本规范第2.1节的规定。", requirementText, "样本应均匀分布。", "每批抽查两件。", otherText];
   const manifest: EvidenceManifest = {
     schema_version: EVIDENCE_SCHEMA_VERSION, job_id: "coverage-fixture", target_id: "coverage-target",
     source: { adapter: "document-domain-agent/v1", file_name: "source.md", sha256: sha256Text(texts.join("\n")), semantic_workflow: SEMANTIC_EVIDENCE_SCHEMA_VERSION },
@@ -66,6 +66,76 @@ function bindRequirementFragments(f: ReturnType<typeof fixture>, quotes: string[
 }
 
 describe("reference coverage feedback", () => {
+  function referencedMethodFixture() {
+    const f = fixture("2.1.1 涂层表面应平整。方法按本规范第2.1.2条执行。", "检验方法：用偏振片观察表面纹理。");
+    f.plan.sampling_rules[0]!.complete_span_ids = [f.ids[2]!, f.ids[3]!];
+    f.plan.sampling_rules[0]!.branches = [f.plan.sampling_rules[0]!.branches[0]!];
+    f.manifest.reference_occurrences[0]!.target_evidence_ids.push("e:4");
+    f.plan.references[0]!.target_span_ids.push(f.ids[4]!);
+    f.plan.references[0]!.import_scope.allowed_fields.push("method");
+    const located = locateAndRegisterSourceQuote(f.registry, { source_id: "e:1", evidence_id: "e:1", text: f.manifest.evidence[1]!.text }, "本规范第2.1.2条");
+    f.registry = located.registry;
+    const anchor = located.spans[0]!;
+    f.manifest.reference_occurrences.push({ ...f.manifest.reference_occurrences[0]!, occurrence_id: "reference:method", origin_evidence_id: "e:1", origin_fields: ["method"],
+      origin_span_id: f.ids[1]!, reference_literal_span_id: anchor.span_id, reference_literal: { evidence_id: "e:1", start: anchor.start, end: anchor.end },
+      raw_reference: "本规范第2.1.2条", target_evidence_ids: ["e:4"], target_address: { source_id: "source", locator_kind: "clause", locator: "clause:2.1.2" } });
+    f.plan.references.push({ key: "method", occurrence_id: "reference:method", anchor_span_ids: [anchor.span_id], target_span_ids: [f.ids[4]!], action: "keep_reference", application_mode: "reference_only",
+      import_scope: { mode: "field_specific", allowed_fields: ["method"], reason: "嵌套方法引用" }, destinations: [{ item_key: "surface", target_field: "method" }], reason: "实际方法字段接收" });
+    f.plan.items[0]!.fields.method = { composition: "reference", span_ids: [f.ids[1]!, f.ids[4]!], separator: "", reason: "方法由被引章节的实际方法句承接。" };
+    const compiled = compileTargetSelectors(f.plan, f.registry, f.manifest);
+    const hydrated = hydrateSemanticSourcePlan(compiled, f.manifest);
+    return { ...f, compiled, hydrated };
+  }
+
+  test("a real referenced method closes a chapter placeholder without becoming direct evidence or a destination", () => {
+    const f = referencedMethodFixture(), before = structuredClone(f.compiled);
+    expect(f.hydrated.acceptance_items[0]!.evidence_ids).not.toContain("e:4");
+    expect(f.hydrated.acceptance_items[0]!.field_bindings.method.evidence_ids).toContain("e:4");
+    expect(f.compiled.reference_resolutions[0]!.destination_bindings).toEqual([]);
+    expect(validatePlanText(JSON.stringify(f.compiled), f.manifest)).toMatchObject({ ok: true, issues: [] });
+    expect(materialize(f.hydrated, f.manifest, "fixture").result.inspection_lots[0]!.items[0]!.method).toContain(f.manifest.evidence[4]!.text);
+    expect(f.compiled).toEqual(before);
+  });
+
+  test("table placeholder coverage also counts a row actually received by a method field", () => {
+    const f = referencedMethodFixture();
+    Object.assign(f.manifest.evidence[4]!, { kind: "table_row", table_row_kind: "data", table_id: "T" });
+    Object.assign(f.manifest.reference_occurrences[0]!, { reference_kind: "table", target_table_id: "T", target_evidence_ids: ["e:4"] });
+    f.compiled.reference_resolutions[0]!.target_evidence_ids = ["e:4"];
+    expect(validatePlanText(JSON.stringify(f.compiled), f.manifest)).toMatchObject({ ok: true, issues: [] });
+  });
+
+  test.each(["clause", "table"].flatMap(referenceKind => ["unbound", "wrong_source", "claim_only", "invalid_fragment", "hidden_fragment", "bad_hash"].map(kind => ({ referenceKind, kind }))))("$referenceKind: $kind cannot prove received field coverage", ({ referenceKind, kind }) => {
+    const f = referencedMethodFixture(), item = f.hydrated.acceptance_items[0]!;
+    if (referenceKind === "table") {
+      Object.assign(f.manifest.evidence[4]!, { kind: "table_row", table_row_kind: "data", table_id: "T" });
+      Object.assign(f.manifest.reference_occurrences[0]!, { reference_kind: "table", target_table_id: "T", target_evidence_ids: ["e:4"] });
+      f.hydrated.reference_resolutions[0]!.target_evidence_ids = ["e:4"];
+    }
+    // Exercise persisted v7 diagnostics too; hydrated v8 sampling extensions
+    // are deliberately not part of the legacy persisted schema.
+    item.sampling.applied_branches?.forEach(branch => { delete branch.components; });
+    f.hydrated.shared_sampling_rules?.forEach(rule => { delete rule.components; rule.branches.forEach(branch => { delete branch.components; }); });
+    if (kind === "unbound" || kind === "claim_only") {
+      item.method = "";
+      item.field_bindings.method = { status: "not_applicable", composition: "not_applicable", evidence_ids: [], source_fragments: [], value_sha256: sha256Text(""), reason: "已接收该方法的声明不能代替内容" };
+    }
+    if (kind === "claim_only") item.reference_evidence_ids = [...new Set([...item.reference_evidence_ids, "e:4"])];
+    if (kind === "wrong_source") {
+      item.method = f.manifest.evidence[1]!.text;
+      Object.assign(item.field_bindings.method, { evidence_ids: ["e:1"], source_fragments: [{ evidence_id: "e:1", text: item.method }], value_sha256: sha256Text(item.method) });
+    }
+    if (kind === "invalid_fragment") item.field_bindings.method.source_fragments.find(fragment => fragment.evidence_id === "e:4")!.text = "不存在的检查方法";
+    if (kind === "hidden_fragment") { item.method = "没有显示原方法"; item.field_bindings.method.value_sha256 = sha256Text(item.method); }
+    if (kind === "bad_hash") item.field_bindings.method.value_sha256 = sha256Text("旧值");
+    const result = validatePlanText(JSON.stringify(f.hydrated), f.manifest);
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      code: referenceKind === "table" ? "reference_placeholder_table_leaf_missing" : "reference_placeholder_item_coverage_missing",
+      details: expect.objectContaining({ [referenceKind === "table" ? "uncovered_data_row_evidence_ids" : "uncovered_evidence_ids"]: expect.arrayContaining(["e:4"]) }),
+    }));
+  });
+
   test.each([
     { text: "2.1.1 涂层表面应平整。", quotes: ["涂层表面应平整"], gaps: [{ start: 0, end: 6 }, { start: 13, end: 14 }] },
     { text: "甲项；乙项。丙项！", quotes: ["甲项", "乙项", "丙项"], gaps: [{ start: 2, end: 3 }, { start: 5, end: 6 }, { start: 8, end: 9 }] },

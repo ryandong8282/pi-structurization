@@ -255,7 +255,7 @@ export const TARGET_SELECTOR_ITEM_JSON_SCHEMA = strictObject({
   }),
 });
 
-const ReferenceComponentDispositionSchema = strictObject({
+export const ReferenceComponentDispositionSchema = strictObject({
   component_span_ids: RequiredSpanIdsSchema,
   decision: Type.Union([
     Type.Literal("independent_item"),
@@ -412,7 +412,7 @@ export const TARGET_SELECTOR_AUTHOR_PLAN_JSON_SCHEMA = strictObject({
   items: Type.Array(TARGET_SELECTOR_AUTHOR_ITEM_JSON_SCHEMA),
 });
 
-const TARGET_SELECTOR_DRAFT_PLACEMENT_DESCRIPTION = "草稿业务集合容器。lots、items、sampling_rules、references、source_dispositions、residual_source_dispositions 都只能作为 draft 的子字段。业务参数顶层只允许 operation、draft_fingerprint、reference_selections、draft、quote_bindings、collection、remove_keys。普通完整记录写入 draft；已有项目的引用字段选择使用独立的 reference_selections 与当前 draft_fingerprint，不与 draft/remove_keys/replace_collection 混用。source_handle_scope 是模型短来源句柄包装追加的顶层会话参数，不属于业务字段；使用短句柄时必须携带，使用 canonical IDs 时可省略，不能放进 draft。";
+const TARGET_SELECTOR_DRAFT_PLACEMENT_DESCRIPTION = "草稿业务集合容器。lots、items、sampling_rules、references、source_dispositions、residual_source_dispositions 都只能作为 draft 的子字段。业务参数顶层只允许 operation、draft_fingerprint、reference_selections、draft、quote_bindings、collection、remove_keys。普通完整记录写入 draft；已有项目的引用字段选择使用独立的 reference_selections 与当前 draft_fingerprint，不与 draft/remove_keys/replace_collection 混用。来源所属目标由程序绑定当前工具会话；直接使用当前回条中的短句柄，不传 source_handle_scope，也不放进 draft。";
 
 export const TARGET_SELECTOR_DRAFT_JSON_SCHEMA = Type.Object({
   lots: Type.Optional(Type.Array(TARGET_SELECTOR_PLAN_JSON_SCHEMA.properties.lots.items, {
@@ -3019,7 +3019,7 @@ export function registeredDocumentReferenceReceiptIssues(
         reference_literal_span_ids: referenceOccurrenceLiteralSpanIds(occurrence),
         matching_reference_keys: selectorBindings.map((reference) => reference.key),
         required_action: selectorBindings.length === 0
-          ? "若被引业务组件缺真实接收项，先按原文补齐 draft.items；再新增 draft.references，逐字复制 occurrence_id 和全部有序 reference_literal_span_ids 作 anchor，并按原文绑定真实字段。纯占位须已有完整真实项覆盖。"
+          ? "逐条保存该 occurrence 的作者回执及已经确认的真实接收项；允许 action=review 的未完成中间态，不要求先判断整章。复制 occurrence_id 和全部有序 reference_literal_span_ids 作 anchor；未决组件仍须继续判断，纯占位须已有完整真实项覆盖。"
           : "删除重复 references 记录，仅保留一条与原字段和原位置一致的绑定",
         actual: {
           occurrence_id: occurrence.occurrence_id,
@@ -3057,7 +3057,7 @@ export function registeredDocumentReferenceReceiptIssues(
         ...(selectorBindings.length === 0 ? {
           save_tool_instruction: hasExistingAnchorRecord
             ? "先核对已有作者记录；同一引用时以 operation=upsert、draft.references 保存带明确 occurrence_id 的完整原 key 记录并保留其他有效字段。缺真实接收项时按原文修正 draft.items，不默认另增 reference。writable_paths 是可修改集合提示，不是工具参数。"
-            : "依据已读原文，必要时先以 operation=upsert、draft.items 保存完整的真实接收项，再以 draft.references 保存该 occurrence 的完整引用记录；可同次提交。writable_paths 是可修改集合提示，不是工具参数。",
+            : "用 operation=upsert 保存该 occurrence 的完整 draft.references 记录及已确认的真实 draft.items；可同次提交，也可先保存 action=review 的中间态后继续逐组件补齐。无需等整章判断完成，未决状态不授予阶段通过或封存。writable_paths 是集合提示，不是工具参数。",
         } : {}),
         how_to_pass: hasExistingAnchorRecord
           ? "actual.exact_anchor_author_records 是精确同 anchor 的已有作者记录，尚不证明业务路由正确。先读取这些真实 key，再用 list_reference_occurrences 核对 occurrence_id、全部有序字面 span 与原文；若仍是同一引用，在原 key 完整记录中补回明确 occurrence_id，保留其他正确字段，不重复造 reference。若记录实际属于不同引用，先按原文澄清身份及合法路由，不得自动合并或改换业务接收者。以 stage_target_selector_draft 保存完整 references 记录后依据新校验回条继续；补回身份不证明 action、来源或接收字段通过。"
@@ -3066,7 +3066,7 @@ export function registeredDocumentReferenceReceiptIssues(
             ? "先用 list_reference_occurrences 核对当前 occurrence_id、原文 literal、required 和 target_not_found 回执，再按原来源读取原文及现有作者 records。当前没有可展开目标，不要调用目标读取工具或猜 target_span_ids。由模型核对真实接收项及原引用实际所在字段，保存 keep_reference/reference_only、target_span_ids=[]、精确 anchor 和有依据的完整 references 记录。空 target spans 不允许空 destinations：这里接收的是本地原引用文字，接收项不必来自未找到的目标；origin_binding 也不能代替 destinations。原引用字段尚未保留文字和来源时，依据原文修正对应 draft.items 记录，不能虚造被引判据。这只补作者回执，不会把未解析目标变成通过。若原文支持定位参数有误，才用 resolve_document_reference 重新定位真实目标；required、status 和原文不可改，缺接收依据或目标仍不可恢复时保留检查点，不能虚造验收项。保存后依据新校验回条继续。"
             : selectorContextReferenceOrigins(selectors, registry, manifest, occurrence)
             ? "先读取当前 source_dispositions 和 occurrence 的原文，复核 context_receipt_condition。若模型确认只属背景，用 context_receipt_values 保存完整 draft.references：保留 occurrence_id、全部精确 anchor、合法且已读的 target_span_ids 和真实说明，destinations=[]，省略 origin_binding，不选 placeholder。若发现 context 分类错误，恢复实际业务来源并建立真实字段路由。不得删除已登记 occurrence 来消错，不得虚造接收项或改变原文适用性。保存后重试验证。"
-            : "先用 list_reference_occurrences 核对 occurrence_id、字面 span、analysis_mode、target_key；inline 用 read_document_reference_evidence，isolated 用 read_reference_facts 读组件，并用 read_target_selectors 读现有 items。若适用组件缺接收项，先按原文补齐 draft.items 及精确来源，不得猜不适用或接收字段。再增 draft.references，复制 occurrence_id 和全部 reference_literal_span_ids 作 anchor，按原文绑定目标、真实字段。仅在真实项完整覆盖时可用 reference_placeholder。用 stage_target_selector_draft 保存 items/references 后重试。"
+            : "核对当前 occurrence_id、全部有序字面 span 和登记读取路由；缺上下文时才用 list_reference_occurrences、正文工具或现有 items 读取。已有组件计划时执行其当前步骤，判断清一部分就保存完整 keyed items/references，不要求先读完或判断整章。尚未完成可暂存 action=review，已确认部分使用真实目标及接收字段，其余保持未决；复制 occurrence_id 和全部 reference_literal_span_ids 作 anchor，新 reference key 由模型命名。继续逐组件判断并保存后跟随新回条；review、缺组件或缺真实接收关系仍不能通过完整验证和封存。不能用猜测的不适用、虚构接收项或 reference_placeholder 掩盖未决内容。"
           : "先用 read_target_selectors 读取 references，按 occurrence_id 找出重复记录；保留唯一且与原字段、原位置一致的绑定，删除其余重复记录。用 stage_target_selector_draft 保存后重试验证，不得合并不同 occurrence。"),
         do_not_edit: "不可变引用 occurrence、原文、编译产物和无关 references。",
       },
@@ -3459,7 +3459,8 @@ function tableRowMatrix(record: EvidenceManifest["evidence"][number]): Omit<Tabl
   const unitIndex = columns.findIndex(column => /^(?:计量)?单位(?:[（(][^()（）]*[）)])?$/u.test(column.replace(/\s+/gu, "")));
   const boundaryIndexes = [valueIndex, methodIndex, unitIndex].filter(index => index >= 0);
   const semanticEnd = boundaryIndexes.length ? Math.min(...boundaryIndexes) : cells.length;
-  const rowPath = cells.slice(0, semanticEnd).filter(Boolean)
+  const rowPath = cells.slice(0, semanticEnd).filter((value, index) => value
+    && !/^(?:项次|序号|编号|行号)$/u.test((columns[index] ?? "").replace(/\s+/gu, "")))
     .filter((value, index, values) => index === 0 || value !== values[index - 1]);
   return {
     row_id: `table-row-obligation:${sha256Text(`${record.evidence_id}\0${record.locator}`)}`,
@@ -3475,7 +3476,14 @@ function tableRowMatrix(record: EvidenceManifest["evidence"][number]): Omit<Tabl
   };
 }
 
-function selectorItemSpanIds(item: TargetSelectorPlan["items"][number]): string[] {
+function selectorItemSpanIds(item: TargetSelectorPlan["items"][number], rules: TargetSelectorPlan["sampling_rules"] = []): string[] {
+  const rule = rules.filter(rule => rule.key === item.sampling.rule_key);
+  const selectedSampling = ["reference", "reference_unspecified_quantity"].includes(item.sampling.status)
+    && rule.length === 1 && item.sampling.branch_keys.length
+    && item.sampling.branch_keys.every(key => rule[0]!.branches.some(branch => branch.key === key
+      && (branch.applies_to_category === "all_items" || branch.applies_to_category === item.category)))
+    ? samplingComponentSpanIds([...rule[0]!.components, ...rule[0]!.branches
+      .filter(branch => item.sampling.branch_keys.includes(branch.key)).flatMap(branch => branch.components)]) : [];
   return [...new Set([
     ...item.criterion_span_ids,
     ...item.continuation_span_ids,
@@ -3491,6 +3499,7 @@ function selectorItemSpanIds(item: TargetSelectorPlan["items"][number]): string[
     ...(item.sampling.status === "explicit"
       ? [...item.sampling.condition_span_ids, ...item.sampling.quantity_span_ids, ...item.sampling.script_span_ids]
       : []),
+    ...selectedSampling,
   ])];
 }
 
@@ -3519,7 +3528,7 @@ export function tableExpansionState(
       || (!confirmedStructuralRows.has(record.evidence_id) && record.table_row_kind === "data")));
   const spanById = new Map(registry?.spans.map(span => [span.span_id, span]) ?? []);
   const itemEvidence = new Map((selectors?.items ?? []).map(item => [item.key, new Set(
-    selectorItemSpanIds(item).flatMap(spanId => {
+    selectorItemSpanIds(item, selectors?.sampling_rules).flatMap(spanId => {
       const span = spanById.get(spanId);
       return span ? [span.evidence_id] : [];
     }),
@@ -3582,19 +3591,20 @@ export function tableExpansionState(
         unresolved_rows_complete: pending.length <= 3,
         pending_evidence_ids: pending.map((row) => row.evidence_id),
         candidate_core_property_groups: workPackage.candidate_core_property_groups,
+        grouping_basis: "layout_navigation_only_not_business_classification",
         current_item_groups: (selectors?.items ?? []).filter(item => workPackage.rows.some(row => row.item_keys.includes(item.key))).slice(0, 10).map(item => ({ key: item.key, name: item.name })),
         current_item_groups_role: "existing_source_receivers_for_navigation_not_suggested_repair_targets",
-        writable_paths: ["/items", "/source_dispositions"],
-        writable_collections: ["items", "source_dispositions"],
-        required_action: "map_each_row_to_an_item_or_same_core_property_branch_or_explicit_context",
+        writable_paths: ["/items", "/sampling_rules", "/source_dispositions"],
+        writable_collections: ["items", "sampling_rules", "source_dispositions"],
+        required_action: "model_decides_item_branch_applied_sampling_or_context",
         candidate_read_tool: "open_evidence",
         candidate_read_tools: ["open_evidence", "read_target_selectors", "list_table_fragments", "read_table_summary", "read_table_rows", "locate_evidence_span"],
         next_tool: "open_evidence",
         next_tool_arguments: { evidence_id: pending[0]!.evidence_id, cursor: 0 },
         next_tools: ["open_evidence", "read_target_selectors", "list_table_fragments", "read_table_summary", "read_table_rows", "locate_evidence_span", "stage_target_selector_draft"],
         save_tool: "stage_target_selector_draft",
-        save_tool_instruction: "读取现有相关 item 的完整记录后，只用 operation=upsert 和 draft.items 或 draft.source_dispositions 保存经原文核实的完整记录；新增真实 item 时也须填写完整来源与 typed table。writable_paths 是诊断元数据，不是工具参数。",
-        how_to_pass: "unresolved_rows 是有界样例，unresolved_rows_complete=false 时不是完整待办；pending_evidence_ids 才是本条诊断的完整未处置来源清单。先按 next_tool_arguments 打开首个待办，再按 pending_evidence_ids 逐行核对；用 list_table_fragments 的 table_expansion_work_packages.rows 按精确 evidence_id 查看当前 disposition/item_keys，并找到实际 table_key，按需用 read_table_summary/read_table_rows 核对原文表头、条件、单位及方法。current_item_groups 仅是已写入来源的作者记录导航，不是待修项或建议接收者，也不证明严格校验通过；不要把已承载行误当缺行或按相似名字猜记录。用 read_target_selectors 读取你依据原文判断的真实接收项。独立检查属性写入真实 item；同一属性条件分支写入该 item 的 typed table；确属非验收上下文或不适用时才保存有依据的 source_dispositions。每确认一条完整真实作者记录就增量暂存，不等整个反馈组完成才保存；调查笔记不代替作者记录。按原上限在实质修复后重检，不得遗漏、虚构或把整表合成一个项目。",
+        save_tool_instruction: "按原文决定来源用途，用operation=upsert保存实际需要的draft.items、draft.sampling_rules或draft.source_dispositions。抽样表可声明共享规则并由真实item.sampling选择分支，不逐容量区间造验收项目。已有记录按key读取，新建记录不要求先读取不存在的key；当前规则中未被实际选用的分支不记已处理。writable_paths是诊断元数据，不是工具参数。",
+        how_to_pass: "unresolved_rows是有界样例，pending_evidence_ids是完整来源清单。按给出的来源工具核对原文及真实表头、条件、单位和方法。由模型判断来源进入独立项目、同属性条件分支、实际选用的共享抽样规则，还是有据的上下文/不适用处置；布局分组不裁决业务，也不要求一行一项。已有接收项按key读取；确需新建项目或规则时先按当前Schema保存真实记录，不读取不存在的key。共享抽样使用draft.sampling_rules并由实际item.sampling选择rule_key和branch_keys，只统计所选present组件，未选分支及complete_span_ids不代替处理。每确认独立记录即保存；调查笔记或重读不代替作者决定。",
         do_not_edit: "不可变表格原文、编译产物、与待处理行无关且已正确的 item。",
       },
     });
@@ -3607,7 +3617,7 @@ export function tableExpansionState(
       issues.push({
         code: "selector_table_distinct_core_properties_merged",
         path: itemIndex >= 0 ? `/items/${itemIndex}` : "/items",
-        message: "一个 item 合并了多个独立检查属性。acceptance_branches 只允许同一核心属性的互斥条件，不能把整张表包装成一个项目。",
+        message: "一个item引用了不同布局分组的表行；请由模型判断这些是不同质量属性还是同一属性的条件，不据布局直接认定合并错误。",
         details: {
           table_id: workPackage.table_id,
           item_key: itemKey,
@@ -3615,7 +3625,7 @@ export function tableExpansionState(
           readable_row_matrix: ownedRows,
           candidate_core_property_groups: workPackage.candidate_core_property_groups,
           writable_paths: ["/items", itemIndex >= 0 ? `/items/${itemIndex}/table/properties/acceptance_branches` : "/items"],
-          required_action: "split_distinct_core_properties_into_items_or_keep_only_one_core_property_with_complete_branches",
+          required_action: "model_reviews_layout_groups_without_presumed_business_split",
         },
       });
     }
@@ -4300,6 +4310,10 @@ export function compileTargetSelectors(
             same_origin_occurrence_ids: group.map((entry) => entry.occurrence.occurrence_id),
             required_target_span_ids: reference.target_span_ids,
             missing_or_duplicate_span_ids: missingSpanIds,
+            actual: { selected_target_span_count: reference.target_span_ids.length, disposition_count: dispositions.length,
+              missing_or_duplicate_span_ids: missingSpanIds, registered_target_evidence_count: occurrence.target_evidence_ids.length },
+            expected: { selected_target_spans: "each_has_exactly_one_author_disposition",
+              reference_inventory: "all_registered_target_sources_still_accounted_for_independently" },
             required_action: "为每个 target span 恰好填写一次 component_dispositions，并选择 independent_item、same_judgment、acceptance_branch 或 not_applicable",
             writable_paths: [`/references/${referenceIndex}/target_span_ids`, `/references/${referenceIndex}/component_dispositions`, "/items"],
             writable_collections: ["references", "items"],
@@ -4309,7 +4323,7 @@ export function compileTargetSelectors(
             next_tools: ["read_target_selectors", "list_reference_occurrences", "read_document_reference_evidence", "read_reference_facts", "open_evidence", "locate_evidence_span", "stage_target_selector_draft"],
             save_tool: "stage_target_selector_draft",
             save_tool_instruction: "先读取当前完整 reference 和相关真实 items，只修正经原文核实的 target_span_ids、component_dispositions 或 items；以 operation=upsert、draft.references 和必要时 draft.items 提交完整记录。writable_paths 是诊断元数据，不是工具参数。",
-            how_to_pass: "先读 reference/items；list_reference_occurrences 核对 analysis_mode/target_key；inline 用 read_document_reference_evidence、isolated 用 read_reference_facts 读原文。核对 target_span_ids 中每个 span：仅移除原文证实不承载要求的结构片段，保留实质要求；对保留的 span 逐项处置。有来源匹配的 item 则绑定，没有则按原文建立真实 item 并保留适用条件；仅有依据才选 not_applicable。填写 component_dispositions 和真实 destinations；用 stage_target_selector_draft(operation=upsert) 同次保存完整 draft.references、必要时 draft.items，再重试验证。",
+            how_to_pass: "先读reference/items并核对实际来源路由。target_span_ids是本记录当前选择导入或显式处置的片段，不是不可变引用库存；可以暂不选择仍未判断的片段以保存已确认部分，它们仍由完整引用库存检查保留为未决，不表示完成。不得删除已有正确决定、实际条件或修改不可变occurrence来消错。对保留的每个span恰好声明一次组件决定，接收者、条件和不适用理由由模型依据原文判断。用stage_target_selector_draft(operation=upsert)保存完整draft.references和必要的draft.items，保留未修改内容。当前步骤已有声明而缺口在其外时，由模型更新计划选择下一待办，不能重复保存原步骤或把整个引用统一排除。",
             do_not_edit: "不可变引用原文、编译产物、无关 references 和已有正确的 items。",
           },
         });

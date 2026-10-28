@@ -1434,6 +1434,37 @@ test("reference origin repair keeps exact read arguments for every mixed origin"
   expect(JSON.stringify(actionable)).not.toContain(fixture.isolatedText);
 });
 
+test("unaccounted isolated components have an executable exact-source route through public handles", async () => {
+  const fixture = await routingFixture();
+  const { controller, workspace, isolatedEvidenceId, isolatedTargetKey } = fixture;
+  const [routed] = await (controller as any).routeSelectorCompilerEvidenceReads([{
+    code: "selector_resolved_reference_components_unaccounted", path: "/references/0/component_dispositions",
+    details: { evidence_ids: [isolatedEvidenceId], next_tool: "list_reference_occurrences", next_tool_arguments: { cursor: 0 } },
+  }]) as any[];
+  const actionable = actionableSelectorIssue(routed) as any;
+  expect(actionable).toMatchObject({ next_tool: "read_reference_facts",
+    next_tool_arguments: { target_key: isolatedTargetKey, evidence_ids: [isolatedEvidenceId] } });
+  const before = await workspace.readState(), draft = await readFile(workspace.workingSelectorPath, "utf8");
+  const handles = await ModelSourceHandles.open(workspace.root);
+  const visible = await handles.encode(actionable) as any;
+  expect(visible.next_tool_arguments.evidence_ids[0]).toMatch(/^e\d+$/u);
+  const publicArguments = { ...visible.next_tool_arguments, source_handle_scope: handles.scope };
+  expect(Check(handles.wrapTools(createPiTools(controller)).find(tool => tool.name === visible.next_tool)!.parameters, publicArguments)).toBe(true);
+  const args = await handles.decodeArguments({ ...visible.next_tool_arguments, source_handle_scope: handles.scope });
+  const route = await controller.dispatch(visible.next_tool, args) as any;
+  expect(route).toMatchObject({ ok: true, metadata_only: true, source_routes: [{ evidence_id: isolatedEvidenceId }] });
+  expect(route).not.toHaveProperty("resolved_rows");
+  expect((await workspace.readState()).opened_evidence_ids).toEqual(before.opened_evidence_ids);
+  expect(Check(createPiTools(controller).find(tool => tool.name === route.next_tool)!.parameters, route.next_tool_arguments)).toBe(true);
+  const body = await controller.dispatch(route.next_tool, route.next_tool_arguments) as any;
+  expect(body).toMatchObject({ ok: true, resolved_rows: expect.arrayContaining([
+    expect.objectContaining({ evidence_id: isolatedEvidenceId, span_id: expect.any(String) }),
+  ]) });
+  expect((await workspace.readState()).opened_evidence_ids).toContain(isolatedEvidenceId);
+  expect(await readFile(workspace.workingSelectorPath, "utf8")).toBe(draft);
+  expect((await workspace.readState()).validation_attempts).toBe(before.validation_attempts);
+});
+
 test("component mismatch routes isolated spans without removing direct or inline readers", async () => {
   const fixture = await routingFixture();
   const registry = await fixture.workspace.readSourceSpanRegistry();
@@ -2546,6 +2577,10 @@ test.each([false, true])("primary table rows overlapping an isolated target stay
     spans: registry.spans.filter((span) => accessibleEvidenceIds.has(span.evidence_id)),
   });
   expect.soft(context.target_scope).not.toHaveProperty("confirmed_scope_fingerprint");
+  // Startup/resume must use the same access-filtered scope as the public tool.
+  const handoff = await fixture.controller.selectorScopeHandoff();
+  expect.soft(handoff.target_scope).toEqual(context.target_scope);
+  expect.soft(handoff).not.toHaveProperty("target_evidence_fragments");
   expect.soft(context.target_scope.selected_atom_ids).not.toContain(fixture.isolatedRow.evidence_id);
   expect.soft(context.target_scope.primary_source_ranges.every((range: any) =>
     range.end_exclusive_line <= 1 || range.start_line >= 3

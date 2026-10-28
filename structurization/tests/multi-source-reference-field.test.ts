@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { prettyJson, sha256Text } from "../src/canonical.js";
 import { EVIDENCE_SCHEMA_VERSION, EVIDENCE_SCOPE_SCHEMA_VERSION, SEMANTIC_EVIDENCE_SCHEMA_VERSION, type EvidenceManifest } from "../src/contracts.js";
-import { compileTargetSelectors, initialTargetSelectorPlan, registeredDocumentReferenceReceiptIssues, unresolvedReferenceDestinationIssues, requiredReferenceAnchorOnlyEvidenceIds, requiredReferenceFieldOnlyEvidenceIds, TARGET_SELECTOR_TOOL_DRAFT_PATCH_JSON_SCHEMA, TargetSelectorCompileError } from "../src/target-selector-compiler.js";
+import { compileTargetSelectors, initialTargetSelectorPlan, targetSelectorFingerprint, registeredDocumentReferenceReceiptIssues, unresolvedReferenceDestinationIssues, requiredReferenceAnchorOnlyEvidenceIds, requiredReferenceFieldOnlyEvidenceIds, TARGET_SELECTOR_TOOL_DRAFT_PATCH_JSON_SCHEMA, TargetSelectorCompileError } from "../src/target-selector-compiler.js";
 import { compiledUnhandledEvidenceIds, selectorDispositionCoverage } from "../src/evidence-disposition-coverage.js";
 import { registryWithFullSourceSpans, locateAndRegisterSourceQuote } from "../src/source-span-registry.js";
 import { validatePlanText } from "../src/validator.js";
@@ -61,6 +61,47 @@ function methodProofEvidenceIds(compiled: ReturnType<typeof compileTargetSelecto
   return hydrated.semantic_references!.filter(r => r.destination_bindings.some(d => d.fields.includes("method")))
     .map(r => r.target_semantic_ids.map(id => hydrated.semantic_evidence!.find(node => node.semantic_id === id)!.evidence_id));
 }
+
+test.each(['初测按本规范第2.1条执行。', '潮湿环境的初测按本规范第2.1条执行。'])(
+  'local saves keep strict relationship work current without repeating a full check: %s', async originText => {
+    const f = fixture('reference_only', undefined, false, originText);
+    f.plan.items[0]!.fields.method.span_ids = [f.ids[3]!, f.ids[4]!];
+    f.plan.lots[0]!.scope_span_ids.push(f.ids[1]!, f.ids[2]!);
+    const root = await mkdtemp(join(tmpdir(), 'neutral-current-reference-work-'));
+    try {
+      const workspace = await RevisionWorkspace.createFromEvidence(root, f.manifest.job_id, f.manifest.target_id,
+        { manifest: f.manifest, markdown: Buffer.from(f.texts.join('\n')) });
+      await writeFile(workspace.sourceSpanRegistryPath, prettyJson(f.registry));
+      await workspace.writeWorkingSelectors(prettyJson(f.plan));
+      await workspace.updateState(state => { state.selector_stage = 'table'; });
+      const controller = await ToolController.create(workspace);
+      const before = await workspace.readState();
+      const fullCheck = vi.spyOn(controller as any, 'evaluateTargetSelectorPreflight');
+      const field = await controller.dispatch('get_target_context', { field_diagnostic_cursor: 0 });
+      expect(field.selector_issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'reference_origin_relation' })]));
+      const first = await controller.selectorExecutionStep();
+      expect(first.state).toBe('authoring');
+      expect(first.work?.code).toBe('reference_origin_relation');
+      f.plan.items[0]!.fields.method.span_ids.unshift(f.ids[1]!);
+      const saved = await controller.dispatch('stage_target_selector_draft', { draft: { items: f.plan.items } });
+      expect(saved).toMatchObject({ ok: true, execution_state: 'authoring', selector_repair_work: { code: 'reference_origin_relation' } });
+      expect(saved.next_tool).not.toBe('advance_target_selector_stage');
+      const resumed = await ToolController.create(workspace);
+      expect((await resumed.selectorExecutionStep()).work?.identity).toBe((saved.selector_repair_work as any).identity);
+      const gate = await resumed.dispatch('commit_target_selector_draft', { draft_fingerprint: targetSelectorFingerprint(f.plan) });
+      expect(gate).toMatchObject({ error: 'selector_repair_required', full_stage_check_performed: false });
+      f.plan.items[0]!.fields.method.span_ids.push(f.ids[2]!);
+      const done = await resumed.dispatch('stage_target_selector_draft', { draft: { items: f.plan.items } });
+      expect(done).toMatchObject({ ok: true, execution_state: 'ready_for_check', next_tool: 'advance_target_selector_stage', next_tool_arguments: { next_stage: 'commit' } });
+      expect(await resumed.selectorExecutionStep()).toMatchObject({ state: 'ready_for_check', next_tool: done.next_tool, next_tool_arguments: done.next_tool_arguments });
+      expect(fullCheck).not.toHaveBeenCalled();
+      const after = await workspace.readState();
+      expect(after.validation_attempts).toBe(before.validation_attempts);
+      expect(after.selector_protocol).toEqual(before.selector_protocol);
+      expect(after.next_history_sequence).toBe(before.next_history_sequence + 2);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  },
+);
 
 test.each([false, true])("finite repair exposes a saved reference field whose local source has no compiled receiver (residual=%s)", async residual => {
   const f = fixture("reference_only");

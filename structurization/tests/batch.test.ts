@@ -459,6 +459,82 @@ function confirmedDiscoveryPlan(jobId: string, markdown: string): DocumentTarget
 }
 
 describe("full batch target scheduling", () => {
+  test("source pause keeps a scheduled transport retry pending and resumes the same checkpoint", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-batch-source-transport-"));
+    const retryDelay = vi.spyOn(attemptBudget, "targetTransportRetryDelayMs").mockReturnValue(5_000);
+    let releaseScheduled!: () => void;
+    const scheduled = new Promise<void>(resolve => { releaseScheduled = resolve; });
+    const append = RevisionWorkspace.prototype.appendEvent;
+    const eventSpy = vi.spyOn(RevisionWorkspace.prototype, "appendEvent").mockImplementation(async function(type, payload) {
+      await append.call(this, type, payload);
+      if (type === "target_transport_retry_scheduled") releaseScheduled();
+    });
+    let ready = false, savedSelectors = "", networkCalls = 0;
+    const author = vi.spyOn(piRuntime, "runLivePi").mockImplementation(async (workspace, controller, _resume, _signal, transportRecovery) => {
+      if (ready) {
+        if (workspace.targetId === TARGET_IDS[0]) {
+          networkCalls++;
+          expect(transportRecovery).toBe(true);
+          expect(workspace.revision).toBe(1);
+          expect(await readFile(workspace.workingSelectorPath, "utf8")).toBe(savedSelectors);
+        }
+        expect(await runOfflineFixture(workspace, controller)).toMatchObject({ ok: true });
+        return { sealed: true, model: "neutral", session_id: "neutral", session_file: "" };
+      }
+      if (workspace.targetId === TARGET_IDS[0]) {
+        networkCalls++;
+        savedSelectors = await readFile(workspace.workingSelectorPath, "utf8");
+        return { sealed: false, model: "neutral", session_id: "neutral", session_file: "", error: "HTTP 503 temporarily unavailable" };
+      }
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([scheduled, new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error("Network retry was never scheduled")), 5_000); })]);
+      } finally { clearTimeout(deadline); }
+      return { sealed: false, model: "neutral", session_id: "neutral", session_file: "", waiting_for_source: {
+        standard_no: "XQ 955-2001", target_id: workspace.targetId, occurrence_id: "reference:neutral",
+        origin_excerpt: "按虚构规程检查", origin_locator: "line:1", dependent_fields: ["method"], reason: "中性资料等待",
+      } };
+    });
+    try {
+      const paragraphs = ["地基承载力应满足设计要求。".repeat(20), "地基承载力应满足设计要求。另一独立范围。".repeat(20)];
+      const markdown = paragraphs.join("\n\n");
+      const markdownPath = join(root, "source.md"), discoveryPlanPath = join(root, "plan.json");
+      const plan = discoveryPlan("pause-retry", markdown);
+      const document = buildDocumentEvidence(markdown, "source.md");
+      expect(document.atoms).toHaveLength(1);
+      plan.targets = plan.targets.slice(0, 2);
+      plan.dispositions[0]!.target_ids = [...TARGET_IDS.slice(0, 2)];
+      plan.targets.forEach((target, index) => {
+        const atom = document.atoms[0]!, start = index ? paragraphs[0]!.length + 2 : 0, text = paragraphs[index]!;
+        const fragment = { atom_id: atom.atom_id, start, end: start + text.length, text, text_sha256: sha256Text(text) };
+        target.evidence_atom_ids = [atom.atom_id]; target.evidence_fragments = [{ atom_id: atom.atom_id, text }];
+        target.materialization!.lot_basis_fragments = [{ atom_id: atom.atom_id, text }];
+        target.work_scope = { start_line: atom.start_line + 2 * index, end_exclusive_line: atom.start_line + 2 * index + 1,
+          source_sha256: document.source.sha256, primary_fragments: [fragment], reason: "独立原文范围",
+          source_blocks: [{ kind: "explicit_range", anchor_fragment: fragment, start_fragment: fragment, end_fragment: fragment, reason: "独立原文范围" }] };
+      });
+      await writeFile(markdownPath, markdown); await writeFile(discoveryPlanPath, prettyJson(plan));
+      const options: FullBatchOptions = { artifactRoot: join(root, "artifacts"), jobId: "pause-retry", markdownPath,
+        concurrency: 2, maxAttempts: 3, live: true };
+      await runFullDocumentDiscovery({ ...options, live: false, discoveryPlanPath });
+      const paused = await runFullBatch(options);
+      expect(paused.status).toBe("waiting_for_source");
+      expect(paused.targets[0]).toMatchObject({ status: "pending", revision: 1,
+        attempt_counters: { transport_attempts: 1, candidate_validation_attempts: 0, coverage_repair_attempts: 0 } });
+      expect(networkCalls).toBe(1);
+      ready = true;
+      // Source reconciliation also releases its own failed/empty-error target.
+      const resumed = await runFullBatch({ ...options, targetIds: paused.targets.filter(t => t.status === "pending"
+        || (t.target_id === TARGET_IDS[1] && t.status === "failed" && !t.error)).map(t => t.target_id) });
+      expect(resumed.targets.every(t => t.status === "sealed"), prettyJson(resumed.targets.map(t => ({ id: t.target_id, status: t.status, error: t.error })))).toBe(true);
+      expect(resumed.targets[0]!.attempt_counters).toEqual(paused.targets[0]!.attempt_counters);
+      expect(networkCalls).toBe(2);
+    } finally {
+      author.mockRestore(); eventSpy.mockRestore(); retryDelay.mockRestore();
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  }, 30_000);
+
   test.each(["recover", "exhaust", "configuration", "alternating"] as const)("transport recovery preserves checkpoint and reports %s", async (outcome) => {
     const root = await mkdtemp(join(tmpdir(), "pi-batch-transport-recovery-"));
     const delay = vi.spyOn(attemptBudget, "targetTransportRetryDelayMs").mockReturnValue(1);
@@ -3281,7 +3357,8 @@ describe("full batch target scheduling", () => {
       const sealedDir = targetRootOf(TARGET_IDS[2]);
       const beforeSealedTree = await fileTreeSnapshot(sealedDir);
 
-      const resumed = await runFullBatch({ ...options, targetIds: [TARGET_IDS[0]] });
+      const resumed = await runFullBatch({ ...options, targetIds: [TARGET_IDS[0]], sourcePdfDisplayName: "GB50203-2011.pdf" });
+      expect(resumed.source).toEqual(batch.source);
       // 未选中的失败目标仍在，整批保持 failed（待复核）；但这不妨碍选中目标完成恢复。
       expect(resumed.status).toBe("failed");
       // 选中的目标恢复并封存。

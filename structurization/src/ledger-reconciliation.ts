@@ -130,6 +130,29 @@ export interface LedgerReconciliationItem {
   table_semantics?: { table_no?: string } | null;
   /** 项目绑定的证据记录 id；配合 evidence locator 可按行号定位到底账条文。 */
   evidence_ids?: readonly string[];
+  /** Host-derived from sealed source bindings and admitted document bytes; never model-authored. */
+  source_context?: LedgerItemSourceContext;
+}
+
+export interface LedgerSourceDiagnostic {
+  item_id: string;
+  target_id?: string;
+  field: string;
+  code: string;
+  reference: string;
+  source_sha256?: string;
+  source_label?: string;
+  actual: string;
+  expected: string;
+}
+
+export interface LedgerItemSourceContext {
+  clause_id: string;
+  clause_valid: boolean;
+  main_clause_ids: string[];
+  clause_sources: Array<{ source_sha256: string; source_label: string }>;
+  table_checks: Array<{ field: string; table_no: string; source_sha256?: string; source_label?: string; ok: boolean }>;
+  diagnostics: LedgerSourceDiagnostic[];
 }
 
 export interface LedgerTableReferenceDiagnostic {
@@ -199,6 +222,8 @@ export interface LedgerReconciliation {
   unresolved_table_refs: string[];
   /** Bounded observations only; never infer a replacement table identity. */
   table_reference_diagnostics?: LedgerTableReferenceDiagnostic[];
+  source_diagnostics?: LedgerSourceDiagnostic[];
+  source_identity_ok?: boolean;
   /** 零遗漏：底账每条必抽条文都在结果里。 */
   clause_identity_ok: boolean;
   /** 零幻觉：结果引用的条文号都在底账里。 */
@@ -311,7 +336,7 @@ export function contaminatedItemIds(input: {
   return contaminated;
 }
 
-function tableReferenceOccurrences(item: LedgerReconciliationItem): Array<{ table_no: string; field: string; raw_reference: string }> {
+export function tableReferenceOccurrences(item: LedgerReconciliationItem): Array<{ table_no: string; field: string; raw_reference: string }> {
   const refs: Array<{ table_no: string; field: string; raw_reference: string }> = [];
   // table_semantics.table_no 常带题名（「表7.2.2切割的允许偏差」），只认前面的表号本体。
   const declared = item.table_semantics?.table_no?.trim();
@@ -380,7 +405,7 @@ export function reconcileLedgerCoverage(input: {
     .map((clause) => clause.clause_id);
 
   const ledgerClauseIds = ledgerClauseIdSet(ledger);
-  const cited = items.map((item) => resolveItemClauseId(item, ledgerClauseIds, ledger, lineIndex));
+  const cited = items.map((item) => item.source_context?.clause_id ?? resolveItemClauseId(item, ledgerClauseIds, ledger, lineIndex));
   const derived_clause_count = items.filter((item, index) =>
     cited[index] !== "" && !normalizeClause(item.source_clause ?? "")
   ).length;
@@ -390,7 +415,7 @@ export function reconcileLedgerCoverage(input: {
     .filter((clauseId) => ledgerClauseIds.has(clauseId)))];
   const fieldCoveredClauseIds = (input.field_covered_clause_ids ?? [])
     .map(normalizeClause).filter((id) => ledgerClauseIds.has(id));
-  const citedSet = new Set([...labeled, ...accountedClauseIds, ...fieldCoveredClauseIds]);
+  const citedSet = new Set([...items.flatMap((item, index) => item.source_context?.main_clause_ids ?? [cited[index]!]), ...accountedClauseIds, ...fieldCoveredClauseIds]);
   const covers = (clauseId: string): boolean =>
     citedSet.has(clauseId) || [...citedSet].some((value) => value.startsWith(`${clauseId}.`));
   const missing_clause_ids = requiredClauseIds.filter((clauseId) => !covers(clauseId));
@@ -409,7 +434,8 @@ export function reconcileLedgerCoverage(input: {
     !covers(clauseId) && !scopeCovers(clauseId) && !requiredClauseIdSet.has(clauseId)
   );
 
-  const extra_clause_ids = [...new Set(labeled.filter((value) => !ledgerClauseIds.has(value)))];
+  const extra_clause_ids = [...new Set(cited.filter((value, index) => value && (items[index]!.source_context
+    ? !items[index]!.source_context!.clause_valid : !ledgerClauseIds.has(value))))];
 
   const captions = ledger.tables;
   const knownTables = new Set([
@@ -417,12 +443,14 @@ export function reconcileLedgerCoverage(input: {
     ...ledger.record_tables.map((table) => normalizeId(table.table_no.replace(/^表\s*/, ""))),
   ]);
   const referenced = [...new Set(items.flatMap(tableReferences))];
-  const unresolved_table_refs = captions === undefined
-    ? []
-    : referenced.filter((ref) => !knownTables.has(ref));
+  const failedTableReferences = items.flatMap(item => item.source_context
+    ? item.source_context.table_checks.filter(check => !check.ok).map(check => check.table_no)
+    : captions === undefined ? [] : tableReferences(item).filter(ref => !knownTables.has(ref)));
+  const unresolved_table_refs = [...new Set(failedTableReferences)];
   const table_reference_diagnostics = unresolved_table_refs.map(table_no => {
     const records = items.flatMap((item, aggregate_item_index) => tableReferenceOccurrences(item)
-      .filter(reference => reference.table_no === table_no).map(reference => ({
+      .filter(reference => reference.table_no === table_no && (!item.source_context || item.source_context.table_checks.some(check =>
+        check.table_no === table_no && check.field === reference.field && !check.ok))).map(reference => ({
         aggregate_item_index, ...(item.item_id ? { item_id: item.item_id } : {}),
         ...(item.target_id ? { target_id: item.target_id } : {}),
         ...(item.author_item_key ? { record_read: { tool: "read_target_selectors" as const,
@@ -448,6 +476,8 @@ export function reconcileLedgerCoverage(input: {
   const item_count_ok = !applicable
     || (items.length >= requiredClauseIds.length - accountedClauseIds.length && unlabeled_item_count === 0);
   const table_identity_ok = unresolved_table_refs.length === 0;
+  const source_diagnostics = items.flatMap(item => item.source_context?.diagnostics ?? []);
+  const source_identity_ok = source_diagnostics.length === 0;
 
   return {
     schema_version: LEDGER_RECONCILIATION_SCHEMA_VERSION,
@@ -466,12 +496,14 @@ export function reconcileLedgerCoverage(input: {
     table_reference_count: referenced.length,
     unresolved_table_refs,
     ...(table_reference_diagnostics.length ? { table_reference_diagnostics } : {}),
+    ...(source_diagnostics.length ? { source_diagnostics } : {}),
+    source_identity_ok,
     clause_identity_ok,
     hallucination_ok,
     item_count_ok,
     table_identity_ok,
     applicable,
-    ok: clause_identity_ok && hallucination_ok && item_count_ok && table_identity_ok,
+    ok: clause_identity_ok && hallucination_ok && item_count_ok && table_identity_ok && source_identity_ok,
   };
 }
 

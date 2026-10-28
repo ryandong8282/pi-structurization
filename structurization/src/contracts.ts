@@ -1125,6 +1125,8 @@ export interface RevisionState {
     used: string[];
     ignored: Array<{ entry_id: string; reason: string }>;
     opened_ranges?: Record<string, Record<string, Array<[number, number]>>>;
+    /** Requested body not yet delivered; independent of cumulative reading receipts. */
+    pending_delivery?: Array<{ entry_id: string; row_cursor: number; row_offset: number }>;
   }>;
   /** 规则发现 Agent 的产出缓存，按被引目标存；命中就不再叫模型。 */
   reference_catalog_rules?: Record<string, {

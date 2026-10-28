@@ -12,8 +12,55 @@ import { createDocumentDiscoveryTools, type DocumentDiscoveryController } from '
 import { createReferenceAnalysisTools, type ReferenceAnalysisController } from '../src/reference-analysis.js';
 import { createEditorHierarchyTools, type EditorHierarchyController } from '../src/editor-hierarchy.js';
 import { buildSelectorStageScenario } from './selector-stage-fixture.js';
+import { SessionManager } from '@earendil-works/pi-coding-agent';
+import { ModelSourceHandles, SOURCE_HANDLE_BOUND_CONTRACT, SOURCE_HANDLE_SESSION_ENTRY } from '../src/model-source-handles.js';
 
 describe('whole Acceptance prompt suite integration', () => {
+  test('a protocol-only provider restart retains stagnation history, repair counts and budgets', async () => {
+    const { workspace, controller } = await buildSelectorStageScenario();
+    try {
+      await workspace.transactState(state => {
+        state.repair.non_converging_rounds = 3;
+        state.repair.repair_session_restarts = 2;
+        state.repair.selector_fingerprint = 'f'.repeat(64);
+      });
+      const before = await workspace.readState();
+      await controller.beginFreshRepairSession('protocol_migration');
+      const after = await workspace.readState();
+      expect(after.repair).toEqual({ ...before.repair, fresh_session_required: false, session_epoch: before.repair.session_epoch + 1 });
+      expect(after).toEqual({ ...before, repair: after.repair });
+    } finally {
+      await rm(workspace.root, { recursive: true, force: true });
+    }
+  });
+
+  test('the session-bound tool declarations and complete author contract agree on source ownership', async () => {
+    const { workspace, controller } = await buildSelectorStageScenario();
+    try {
+      const handles = await ModelSourceHandles.open(workspace.root), session = SessionManager.inMemory(workspace.root);
+      session.appendCustomEntry(SOURCE_HANDLE_SESSION_ENTRY, { scope: handles.scope, tool_contract: SOURCE_HANDLE_BOUND_CONTRACT });
+      const originals = createPiTools(controller), tools = await handles.wrapSessionTools(originals, session);
+      for (let i = 0; i < tools.length; i++) {
+        const schema = tools[i]!.parameters as any, original = originals[i]!.parameters as any;
+        expect(Object.keys(schema.properties), tools[i]!.name).toEqual(Object.keys(original.properties));
+        expect(schema.required, tools[i]!.name).toEqual(original.required);
+        expect(schema.additionalProperties, tools[i]!.name).toEqual(original.additionalProperties);
+        expect(schema.properties).not.toHaveProperty('source_handle_scope');
+        expect(JSON.stringify(schema)).not.toContain(handles.scope);
+      }
+      const contract = tools.find(t => t.name === 'get_target_selector_contract')!;
+      const reply = await contract.execute('contract', {}, undefined as any, undefined as any, undefined as any);
+      const content = reply.content.map(b => b.type === 'text' ? b.text : '').join('\n');
+      const protocols = JSON.parse(content).authoring_protocols;
+      expect(protocols.source_handles).toContain('模型不传 source_handle_scope');
+      expect(protocols.patch).toContain('不传 source_handle_scope');
+      expect(content).not.toMatch(/(?:携带|复制)[^。；\n]{0,25}source_handle_scope/u);
+      expect(content).not.toContain(handles.scope);
+    } finally {
+      await rm(workspace.root, { recursive: true, force: true });
+    }
+  });
+
   test('the real contract returns all on-demand protocols without changing author data or budgets', async () => {
     const { workspace } = await buildSelectorStageScenario([
       '# 2 虚构器件', '', '## 2.1 包装封口', '',

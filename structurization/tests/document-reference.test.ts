@@ -2840,8 +2840,7 @@ describe("resolve_document_reference", () => {
       actual: rawIssue.details.actual,
       writable_path: "/references/0/application_mode",
       writable_paths: expect.arrayContaining(rawIssue.details.writable_paths),
-      next_tool: "read_target_selectors",
-      next_tool_arguments: rawIssue.details.next_tool_arguments,
+      supporting_read: { tool: "read_target_selectors", arguments: rawIssue.details.next_tool_arguments },
       candidate_read_tools: expect.arrayContaining(rawIssue.details.candidate_read_tools),
       save_tool: "stage_target_selector_draft",
       how_to_pass: expect.stringContaining("两种合法方向"),
@@ -2850,6 +2849,7 @@ describe("resolve_document_reference", () => {
         local_criterion_bindings: rawIssue.details.local_criterion_bindings,
       },
     });
+    expect(wrappedIssue).not.toHaveProperty("next_tool");
     expect(wrappedIssue.actual.current_receiver_fields[0]).not.toHaveProperty("fields");
     expect(wrappedIssue.actual.current_receiver_fields[0]).not.toHaveProperty("table");
     expect(wrappedIssue.actual.current_receiver_fields[0]).not.toHaveProperty("sampling");
@@ -3240,6 +3240,12 @@ describe("resolve_document_reference", () => {
       item.reference_evidence_ids = item.reference_evidence_ids.filter(
         (evidenceId) => !targetEvidenceIds.has(evidenceId),
       );
+      // Remove every actual receiver. A routed method field is also received
+      // content even when the direct-evidence and typed-cell lists are empty.
+      for (const binding of Object.values(item.field_bindings)) {
+        binding.evidence_ids = binding.evidence_ids.filter(id => !targetEvidenceIds.has(id));
+        binding.source_fragments = binding.source_fragments.filter(fragment => !targetEvidenceIds.has(fragment.evidence_id));
+      }
       if (item.table_semantics) {
         item.table_semantics.cell_evidence = item.table_semantics.cell_evidence.filter(
           (cell) => !targetEvidenceIds.has(cell.evidence_id),

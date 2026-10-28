@@ -64,6 +64,9 @@ export function selectorFieldDiagnostic(value: unknown, modelReview = false): Re
     ...Object.fromEntries(["allowed_actions", "next_tools", "candidate_read_tools", "writable_collections"]
       .filter(key => issue[key] !== undefined).map(key => [key, issue[key]])),
     ...(issue.record_read ? { record_read: issue.record_read } : {}),
+    ...(issue.supporting_read ? { supporting_read: issue.supporting_read } : {}),
+    ...(issue.priority ? { priority: issue.priority } : {}),
+    ...(issue.candidate_tools ? { candidate_tools: issue.candidate_tools } : {}),
     ...(issue.record_reads ?? details.record_reads ? { record_reads: issue.record_reads ?? details.record_reads } : {}),
     ...(issue.write_mode ?? details.write_mode ? { write_mode: issue.write_mode ?? details.write_mode } : {}),
     ...(issue.diagnostic_array_pages ? {

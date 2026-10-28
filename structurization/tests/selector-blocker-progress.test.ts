@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { observeSelectorBlockers, selectorBlockerObservations, selectorIssueProbes } from "../src/selector-blocker-progress.js";
+import { observeSelectorBlockers, selectorBlockerObservations, selectorIssueProbes, selectorAuthorFactsFingerprint } from "../src/selector-blocker-progress.js";
 import type { TargetSelectorPlan } from "../src/target-selector-compiler.js";
 import type { SourceSpanRegistry } from "../src/source-span-registry.js";
 import { runLengthContinuationLoop, type DurablePromptSnapshot } from "../src/pi-runtime.js";
@@ -13,6 +13,82 @@ const issue = { code: "field_binding_relation", path: "/items/0/fields/method/sp
   details: { actual: { evidence_id: "evidence:a" }, writable_paths: ["/items/0/fields/method", "/items"] } };
 
 describe("selector blocker convergence", () => {
+  test("author fact fingerprints ignore explanations, confidence and record ordering without editing the draft", () => {
+    const original = plan(), changed = structuredClone(original), serialized = JSON.stringify(original);
+    changed.items.reverse();
+    changed.items[0]!.fields.method.reason = "a different explanation";
+    (changed.items[0]!.fields.method as any).confidence = "high";
+    expect(selectorAuthorFactsFingerprint(changed)).toBe(selectorAuthorFactsFingerprint(original));
+    changed.items[0]!.fields.method.span_ids = ["span:actual-new-source"];
+    expect(selectorAuthorFactsFingerprint(changed)).not.toBe(selectorAuthorFactsFingerprint(original));
+    expect(JSON.stringify(original)).toBe(serialized);
+  });
+
+  test.each(["连接段", "密封芯"])("saved reference decisions for %s survive stale-stage observations without claiming validation passed", async name => {
+    const draft = plan();
+    draft.references = Array.from({ length: 4 }, (_, i) => ({ key: `${name}-${i}`, action: "review", reason: "unresolved" })) as any;
+    let round = 0;
+    const events: boolean[] = [];
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "finish the current reference records", continuationPrompt: "continue from the saved record",
+      promptRound: async () => {
+        if (round === 4) return { kind: "sealed" };
+        draft.references[round++]!.action = "adopt";
+        return { kind: "completed" };
+      }, lastAssistant: () => ({ stopReason: "stop" }),
+      snapshot: async () => ({ checkpoint: `revision-${round}`, working_plan_sha256: `raw-${round}`, history_sequence: 40 + round,
+        last_valid_fingerprint: "", author_facts_fingerprint: selectorAuthorFactsFingerprint(draft), authoring_work_identity: "",
+        blocking_issues: [{ identity: "old-stage", fingerprint: "old", assessed: false }] }),
+      shouldContinueAfterCompleted: async () => true, observeBlockingProgress: async () => ({ progress: false, stalled: [] }),
+      onCompletedContinuation: async event => { events.push(event.durable_progress); },
+    });
+    expect(result).toMatchObject({ outcome: { kind: "sealed" }, error: "" });
+    expect(events).toEqual([true, true, true, true]);
+  });
+
+  test("explanation and ordering churn cannot buy more rounds when old stage diagnostics are unassessed", async () => {
+    const draft = plan(); let rounds = 0;
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "neutral repair", continuationPrompt: "continue",
+      promptRound: async () => { rounds++; draft.items.reverse(); draft.items[0]!.reason = `prose-${rounds}`; return { kind: "completed" }; },
+      lastAssistant: () => ({ stopReason: "stop" }),
+      snapshot: async () => ({ checkpoint: `prose-${rounds}`, working_plan_sha256: `prose-${rounds}`, history_sequence: rounds,
+        last_valid_fingerprint: "", author_facts_fingerprint: selectorAuthorFactsFingerprint(draft),
+        blocking_issues: [{ identity: "stale", fingerprint: "old", assessed: false }] }),
+      shouldContinueAfterCompleted: async () => true, observeBlockingProgress: async () => ({ progress: false, stalled: [] }),
+    });
+    expect(rounds).toBe(3); expect(result.error).toMatch(/^incomplete_repair_without_durable_progress:/);
+  });
+
+  test("changing other author facts cannot bypass a currently assessed blocker", async () => {
+    const draft = plan(); let rounds = 0;
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "repair the assigned field", continuationPrompt: "continue",
+      promptRound: async () => { draft.items[1]!.name = `unrelated-${++rounds}`; return { kind: "completed" }; },
+      lastAssistant: () => ({ stopReason: "stop" }),
+      snapshot: async () => ({ checkpoint: `edit-${rounds}`, working_plan_sha256: `edit-${rounds}`, history_sequence: rounds,
+        last_valid_fingerprint: "", author_facts_fingerprint: selectorAuthorFactsFingerprint(draft),
+        repair_work_issues: [{ identity: "current", fingerprint: "same" }] }),
+      shouldContinueAfterCompleted: async () => true, observeBlockingProgress: async () => ({ progress: false, stalled: [] }),
+    });
+    expect(rounds).toBe(3); expect(result.error).toMatch(/^incomplete_repair_without_durable_progress:/);
+  });
+
+  test("real author decision cycles remain bounded even when explanations keep changing", async () => {
+    const draft = plan(); let rounds = 0;
+    const result = await runLengthContinuationLoop({
+      initialPrompt: "neutral cycle", continuationPrompt: "continue",
+      promptRound: async () => { rounds++; draft.items[0]!.fields.method.span_ids = [rounds % 2 ? "span:a" : "span:b"];
+        draft.items[0]!.reason = `prose-${rounds}`; return { kind: "completed" }; },
+      lastAssistant: () => ({ stopReason: "stop" }),
+      snapshot: async () => ({ checkpoint: `edit-${rounds}`, working_plan_sha256: `edit-${rounds}`, history_sequence: rounds,
+        last_valid_fingerprint: "", author_facts_fingerprint: selectorAuthorFactsFingerprint(draft),
+        blocking_issues: [{ identity: "old", fingerprint: "old", assessed: false }] }),
+      shouldContinueAfterCompleted: async () => true, observeBlockingProgress: async () => ({ progress: false, stalled: [] }),
+    });
+    expect(rounds).toBeLessThanOrEqual(5); expect(result.error).toMatch(/^incomplete_repair_durable_progress_cycle:/);
+  });
+
   test.each(["Response incomplete: max_messages", "Connection error.", "Request timed out."])(
     "%s observes the assigned blocker across fresh sessions without altering budgets", async error => {
       let history: ReturnType<typeof observeSelectorBlockers>["history"] | undefined;

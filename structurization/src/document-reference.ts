@@ -1520,7 +1520,7 @@ export async function resolveAndRegisterDocumentReference(
         target: suggestedTarget,
         relation: request.relation,
       },
-      instruction: "当前 raw_reference 的逐字单位与 target.kind 不一致，尚未登记 target_not_found。核对原文后沿用当前 source_handle_scope 和其他参数，只把 target 改为 suggested_target 重试；不得据此推定目标正文或编造来源。",
+      instruction: "当前 raw_reference 的逐字单位与 target.kind 不一致，尚未登记 target_not_found。核对原文后保留其他参数，只把 target 改为 suggested_target 重试；不得据此推定目标正文或编造来源。",
     };
   }
   // Clause/section lookup uses numbered units. Reject an author's placeholder

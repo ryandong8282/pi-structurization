@@ -21,6 +21,7 @@ import {
 import {
   initialTableStructurePlan,
   pendingComplexTableStructureIssues,
+  tableStructureProgress,
   validateTableStructurePlan,
 } from "../src/table-structure.js";
 import { ToolController } from "../src/tools.js";
@@ -286,6 +287,7 @@ describe("agentic table structure contract", () => {
     const dataIds = manifest.evidence.filter((record) =>
       record.table_row_kind === "data" && record.evidence_id !== nestedHeader.evidence_id
     ).map((record) => record.evidence_id);
+    expect(tableStructureProgress(plan, manifest, registry).confirmed_keys).toEqual([]);
     table.status = "confirmed";
     table.header_rows = [...headerIds.slice(0, 1), nestedHeader.evidence_id];
     table.repeated_header_rows = headerIds.slice(1);
@@ -299,6 +301,20 @@ describe("agentic table structure contract", () => {
     }];
     table.reason = "根据正式题注、两段物理表的重复列名、rowspan/colspan 和续表标记确认。";
     expect(validateTableStructurePlan(plan, manifest, registry)).toEqual([]);
+    const structureProgress = tableStructureProgress(plan, manifest, registry);
+    expect(structureProgress.confirmed_keys).toEqual(["9.2.7"]);
+    expect(structureProgress.fingerprint).not.toBe("");
+    const explanationOnly = structuredClone(plan);
+    explanationOnly.tables[0]!.reason = "换一种表述不改变已确认结构。";
+    explanationOnly.tables[0]!.row_role_overrides[0]!.reason = "同一行角色的另一解释。";
+    explanationOnly.tables[0]!.data_rows.reverse();
+    expect(tableStructureProgress(explanationOnly, manifest, registry)).toEqual(structureProgress);
+    const invalidProgress = structuredClone(plan);
+    invalidProgress.tables[0]!.data_rows.push("foreign-neutral-row");
+    expect(tableStructureProgress(invalidProgress, manifest, registry).fingerprint).toBe("");
+    const overlappingProgress = structuredClone(plan);
+    overlappingProgress.tables.push({ ...structuredClone(table), table_key: "different-neutral-key" });
+    expect(tableStructureProgress(overlappingProgress, manifest, registry).fingerprint).toBe("");
     expect(validateTableStructurePlan(plan, { ...manifest, evidence_fingerprint: "reference-expanded-manifest" }, registry)).toEqual([]);
     const silentHeaderToData = structuredClone(plan);
     const repeatedHeader = silentHeaderToData.tables[0]!.repeated_header_rows[0]!;
@@ -368,11 +384,23 @@ describe("agentic table structure contract", () => {
       expect(repairSource.saved_decision).toEqual(wrongVersion);
       const corrected = { ...(repairSource.saved_decision as typeof table), source_version: String(repairSource.source_version) };
       expect(corrected).toEqual(table);
-      expect(await controller.dispatch(String(versionIssue.details.save_tool), { table: corrected })).toMatchObject({
+      const structureSave = await controller.dispatch(String(versionIssue.details.save_tool), { table: corrected });
+      expect(structureSave).toMatchObject({
         ok: true,
         draft_status: "saved_structure_validation_passed",
         pending_complex_tables: [],
+        current_work: { code: "author_table_rows_pending", advisory_only: true, path: "/items",
+          table_key: table.table_key, evidence_ids: [dataIds[0]], save_tool: "stage_target_selector_draft" },
+        next_action: { kind: "author_source_decision_and_save", decision_owner: "model" },
       });
+      expect(structureSave).not.toHaveProperty("next_tool");
+      const restarted = await ToolController.create(workspace);
+      expect(await restarted.selectorExecutionWork()).toMatchObject({ code: "author_table_rows_pending",
+        source_delivery: { current_execution_complete: false } });
+      const delivered = await restarted.dispatch("read_table_rows", { table_key: table.table_key,
+        cursor: manifest.table_fragments[0]!.row_evidence_ids.indexOf(dataIds[0]!), limit: 1 });
+      expect(delivered).toMatchObject({ ok: true, current_work: { code: "author_table_rows_pending",
+        source_delivery: { current_execution_complete: true } }, next_action: { kind: "author_source_decision_and_save" } });
       const outsideNote = manifest.evidence.find((record) => record.role === "table_note")!;
       const wrongRows = { ...structuredClone(corrected), note_rows: [outsideNote.evidence_id] };
       const rowReceipt = await controller.dispatch("stage_table_structure", { table: wrongRows });

@@ -62,7 +62,10 @@ import {
   resolveItemClauseId,
   type LedgerReconciliation,
   type LedgerTableReferenceDiagnostic,
+  type LedgerItemSourceContext,
+  type LedgerSourceDiagnostic,
 } from "./ledger-reconciliation.js";
+import { reconcileTargetDocumentSources, type LedgerSourceCache } from "./ledger-source-reconciliation.js";
 import {
   runLiveDocumentDiscovery,
   runLiveCoverageReview,
@@ -368,6 +371,7 @@ export interface BatchLedgerGap {
   extra_clause_ids: string[];
   unresolved_table_refs?: string[];
   table_reference_diagnostics?: LedgerTableReferenceDiagnostic[];
+  source_diagnostics?: LedgerSourceDiagnostic[];
   unlabeled_item_count: number;
   required_clause_count: number;
   covered_required_clause_count: number;
@@ -383,6 +387,8 @@ export interface BatchLedgerGap {
 }
 
 export interface FullBatchOptions {
+  /** Runtime presentation only; excluded from saved source identity and resume fingerprints. */
+  sourcePdfDisplayName?: string;
   artifactRoot: string;
   jobId: string;
   markdownPath: string;
@@ -2126,16 +2132,13 @@ export async function sealedWorkspaceSatisfiesCurrentContract(
     const coverageApproval = manifest.source.adapter === "document-domain-agent/v1" && !directValidation
       ? await approvedCoverageReviewForRematerialization(workspace)
       : undefined;
-    const items = result.inspection_lots.flatMap((lot) => lot.items);
-    const sealedDocumentLedger = await workspace.readDocumentLedger();
-    const sourceClauseResolutionRequired = sealedDocumentLedger
-      ? sealedDocumentLedger.clauses.some(ledgerRequiredClausePredicate(sealedDocumentLedger))
-      : false;
     return Boolean(
       (manifest.source.adapter !== "document-domain-agent/v1"
         || directValidation
         || (coverageReview?.status === "approved" && coverageApproval?.review.status === "approved"))
-      && (!sourceClauseResolutionRequired || items.every((item) => Boolean(item.source_clause)))
+      // Clause ownership can remain a model-review observation in a valid
+      // structural seal. Reuse must honor that same contract, rather than add
+      // a new nonempty-clause gate absent from compilation and final validation.
       // A direct clause and its shared citation may legitimately differ. Check
       // provenance against the actual materializer contract, not clause equality.
       && batchResultMatchesPlan(result, semanticPlan, manifest, fingerprint),
@@ -3184,7 +3187,7 @@ export function batchLedgerGapFrom(input: {
     ...(input.scope_covered_clause_ids ? { scope_covered_clause_ids: input.scope_covered_clause_ids } : {}),
     ...(input.evidence ? { evidence: input.evidence } : {}),
   });
-  if (!reconciliation.applicable || reconciliation.ok) return { reconciliation };
+  if (reconciliation.ok || (!reconciliation.applicable && reconciliation.source_identity_ok !== false)) return { reconciliation };
   const missing = new Set(reconciliation.missing_clause_ids);
   const owners: BatchLedgerGap["owners"] = [];
   const claimed = new Set<string>();
@@ -3213,6 +3216,7 @@ export function batchLedgerGapFrom(input: {
       unresolved_table_refs: reconciliation.unresolved_table_refs,
       ...(reconciliation.table_reference_diagnostics?.length
         ? { table_reference_diagnostics: reconciliation.table_reference_diagnostics } : {}),
+      ...(reconciliation.source_diagnostics?.length ? { source_diagnostics: reconciliation.source_diagnostics } : {}),
       unlabeled_item_count: reconciliation.unlabeled_item_count,
       required_clause_count: reconciliation.required_clause_count,
       covered_required_clause_count: reconciliation.covered_required_clause_count,
@@ -3245,11 +3249,13 @@ async function evaluateBatchLedgerGap(
   const fieldCoveredClauseIds = new Set<string>();
   const scopeCoveredClauseIds = new Set<string>();
   const primaryRangesByTarget = new Map<string, EvidenceManifest["scope"]["primary_source_ranges"]>();
-  // 各 target 的证据清单合起来才能按行号归属条文；读不到的 target 静默跳过，
-  // 归属会退回文本回捞，不影响其余部分。
+  // Only verified main-document evidence may contribute to the main ledger's
+  // line index. Other source documents have independent line/number spaces.
   const evidence: Array<{ evidence_id: string; locator?: string }> = [];
   const placeholderOriginEvidenceIds = new Set<string>();
   const authorKeysByTarget = new Map<string, Map<string, string>>();
+  const sourceContextsByTarget = new Map<string, Map<string, LedgerItemSourceContext>>();
+  const sourceCache: LedgerSourceCache = new Map();
   for (const sealed of targets) {
     try {
       const workspace = await RevisionWorkspace.openRevision(
@@ -3260,11 +3266,13 @@ async function evaluateBatchLedgerGap(
       );
       const manifest = await workspace.readEvidenceManifest();
       primaryRangesByTarget.set(sealed.target_id, manifest.scope.primary_source_ranges);
-      for (const record of manifest.evidence) {
-        evidence.push({ evidence_id: record.evidence_id, locator: record.locator });
-      }
       const plan = await readJson<PersistedSemanticSourcePlan>(workspace.sealedPlanPath);
-      for (const clause of boundFieldClauseIds(plan, manifest.evidence, ledger)) {
+      const sourceAccounting = await reconcileTargetDocumentSources({ ledger, markdown: frozenMarkdown ?? "", manifest, plan,
+        items: sealed.result.inspection_lots.flatMap(lot => lot.items),
+        ...(options.externalSourceWorkflow ? { workflow: options.externalSourceWorkflow } : {}), cache: sourceCache });
+      sourceContextsByTarget.set(sealed.target_id, sourceAccounting.contexts);
+      for (const record of sourceAccounting.main_evidence) evidence.push({ evidence_id: record.evidence_id, locator: record.locator });
+      for (const clause of boundFieldClauseIds(plan, sourceAccounting.main_evidence, ledger)) {
         fieldCoveredClauseIds.add(clause);
       }
       for (const evidenceId of accountedReferenceOriginEvidenceIds(plan, manifest.reference_occurrences)) {
@@ -3277,10 +3285,16 @@ async function evaluateBatchLedgerGap(
         authorKeysByTarget.set(sealed.target_id, new Map(selectors.items.map(item =>
           [semanticItemIdForSelectorKey(sealed.target_id, item.key), item.key])));
         const registry = await workspace.readSourceSpanRegistry();
-        for (const clause of boundLotScopeClauseIds(selectors, registry, manifest, ledger)) scopeCoveredClauseIds.add(clause);
+        for (const clause of boundLotScopeClauseIds(selectors, registry, { ...manifest, evidence: sourceAccounting.main_evidence }, ledger)) scopeCoveredClauseIds.add(clause);
       }
-    } catch {
-      // 该 target 的证据读不到就不参与行号归属
+    } catch (error) {
+      // A failed source lookup is not permission to fall back to the main
+      // document's numbers. Keep the sealed artifact and report host recovery.
+      sourceContextsByTarget.set(sealed.target_id, new Map(sealed.result.inspection_lots.flatMap(lot => lot.items).map(item => [item.item_id, {
+        clause_id: item.source_clause, clause_valid: false, main_clause_ids: [], clause_sources: [], table_checks: [],
+        diagnostics: [{ target_id: sealed.target_id, item_id: item.item_id, field: "source", code: "ledger_source_read_failed", reference: item.source_clause,
+          actual: error instanceof Error ? error.message : String(error), expected: "恢复已登记版本的原文及封存来源绑定后再对账，不修改封存结果。" }],
+      }])));
     }
   }
   const clauseIds = ledgerClauseIdSet(ledger);
@@ -3293,6 +3307,8 @@ async function evaluateBatchLedgerGap(
     targets: state.targets.map(target => ({ ...target, primary_source_ranges: primaryRangesByTarget.get(target.target_id) })),
     items: targets.flatMap(({ result, target_id }) =>
       result.inspection_lots.flatMap((lot) => lot.items.map(item => ({ ...item, target_id,
+        ...(sourceContextsByTarget.get(target_id)?.has(item.item_id)
+          ? { source_context: sourceContextsByTarget.get(target_id)!.get(item.item_id)! } : {}),
         ...(authorKeysByTarget.get(target_id)?.has(item.item_id)
           ? { author_item_key: authorKeysByTarget.get(target_id)!.get(item.item_id)! } : {}),
       })))
@@ -3315,6 +3331,8 @@ export function describeBatchLedgerGap(gap: BatchLedgerGap): string {
     owned ? `归属 ${owned}` : "",
     gap.unowned_clause_ids.length ? `无 target 认领 ${gap.unowned_clause_ids.join("、")}` : "",
     gap.extra_clause_ids.length ? `底账不存在的条文引用 ${gap.extra_clause_ids.join("、")}` : "",
+    ...(gap.source_diagnostics ?? []).slice(0, 3).map(diagnostic =>
+      `${diagnostic.target_id ?? "当前 target"}/${diagnostic.item_id} ${diagnostic.field} 的来源核验失败：${diagnostic.source_label ?? diagnostic.source_sha256 ?? "来源未确认"} ${diagnostic.reference}；实际：${diagnostic.actual}；通过条件：${diagnostic.expected}`),
     gap.unresolved_table_refs?.length ? `未找到对应表题的表号 ${gap.unresolved_table_refs.join("、")}` : "",
     ...(gap.table_reference_diagnostics ?? []).slice(0, 3).map(diagnostic => {
       const example = diagnostic.affected_records[0];
@@ -3716,6 +3734,7 @@ async function runFullBatchLocked(options: FullBatchOptions): Promise<FullBatchS
           const controller = await ToolController.create(workspace);
           if (options.externalSourceWorkflow) controller.externalSourceWorkflow = options.externalSourceWorkflow;
           if (options.revisionFeedback) controller.userFeedback = options.revisionFeedback;
+          if (options.sourcePdfDisplayName !== undefined) controller.sourcePdfDisplayName = options.sourcePdfDisplayName;
           if (options.live) {
             if (ledgerPrefill) {
               const sealedPrefill = await trySealTargetFromLedgerPrefill({
@@ -4390,6 +4409,12 @@ async function runFullBatchLocked(options: FullBatchOptions): Promise<FullBatchS
           });
         }
         if (!canRetry) break;
+        if (transportFailure) {
+          // Source/operator pauses cancel backoff too. Persist pending work so
+          // recovery cannot confuse a scheduled network retry with a terminal failure.
+          target.status = "pending";
+          await persist();
+        }
         await retryBackoff(target.error, options.signal, delayMs);
       }
       if (target.status !== "sealed" && !target.coverage_control) target.status = "failed";

@@ -1767,6 +1767,8 @@ export class DocumentDiscoveryController {
       : undefined;
     return {
       ok: true,
+      source_document: { markdown_file_name: this.evidence.source.file_name,
+        instruction: "文件名仅供资料导航和区分；标准身份、版本与验收依据以原文为准。" },
       review_mode: reviewGuard ? reviewGuard.review_mode ?? "scope_repair" : "full_discovery",
       scope_revision: (await this.workspace.readState()).review_reason || null,
       authority: "不可变原文是引用依据。目标范围由发现 Agent 阅读 Markdown、PDF 版式及前后语义后明确提交；目录、编号、标题层级和底账只提供候选信号，程序不会据此猜业务边界。source_blocks 为每个连续主资料块提交锚点、起点和明确终点，Harness 按坐标物化其中完整 primary，无需逐段重复 locate：可靠标题结构用 heading_section，无标题、OCR 损坏或独立表格用 explicit_range。scope_span_ids 仅保留说明选择的最小精确来源且必须位于块内；reference_span_ids 只放共享或引用参考，不扩大 primary。每个不连续主资料块都要有自己的 source block。",
